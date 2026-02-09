@@ -15,6 +15,7 @@ from pyomo.core.expr import identify_components
 from pyomo.environ import (
     ConcreteModel,
     Constraint,
+    Expression,
     Objective,
     Param,
     RangeSet,
@@ -27,6 +28,7 @@ from pyomo.environ import (
     value,
 )
 from pyomo.network import Arc
+from pyomo.environ import units as pyunits
 
 # other imports
 import idaes.logger as idaeslog
@@ -61,6 +63,9 @@ from prommis.nanofiltration.costing.diafiltration_cost_model import (
 )
 from prommis.nanofiltration.membrane_cascade_flowsheet.membrane import Membrane
 from prommis.nanofiltration.membrane_cascade_flowsheet.precipitator import Precipitator
+
+# QGESS costing
+from prommis.uky.costing.ree_plant_capcost import QGESSCosting
 
 # Custom imports
 from prommis.nanofiltration.membrane_cascade_flowsheet.solute_property import (
@@ -1115,7 +1120,11 @@ class DiafiltrationModel:
         """
         Adds custom costing block to the flowsheet
         """
-        m.fs.costing = DiafiltrationCosting()
+        # m.fs.costing = DiafiltrationCosting()
+        m.fs.costing = QGESSCosting(
+            discount_percentage=0.1,
+            plant_lifetime=15,
+        )
 
         # Create dummy variables to store the UnitModelCostingBlocks
         # These are needed because the sieving coefficient model does not account for pressure
@@ -1183,17 +1192,108 @@ class DiafiltrationModel:
 
         # precipitator cost blocks
         if precipitate:
-            for prod in ["retentate", "permeate"]:
-                m.fs.precipitator[prod].costing = UnitModelCostingBlock(
-                    flowsheet_costing_block=m.fs.costing,
-                    costing_method=DiafiltrationCostingData.cost_precipitator,
-                    costing_method_arguments={
-                        "precip_volume": m.fs.precipitator[prod].volume,
-                        "simple_costing": simple_costing,
-                    },
-                )
+            # ammonium oxalate: https://www.zauba.com/export-ammonium%2Boxalate-hs-code.html
+            #     NOTE: It is really difficult to find prices for this (less commonly tracked than oxalic acid)
+            # oxalic acid: https://businessanalytiq.com/procurementanalytics/index/oxalic-acid-price-index/
+            #              https://www.chemanalyst.com/Pricing-data/oxalic-acid-1556
+            # cobalt oxalate: https://met3dp.sg/advanced-cobalt-oxalatekey-cutting-edge-technologies/
+            #     NOTE: Also very difficult to find... Source above is orders of magnitude larger than Li
+            # lithium (carbonate) and cobalt: available from various sources like USGS, LME
+            default_market_prices = {
+                "Na2CO3": 0.13 * units.USD_2021 / units.kg,  # soda ash
+                "(NH4)2C2O4": 3.10
+                * units.USD_2016
+                / units.kg,  # TODO: add ammonium oxalate cost
+                "Li2CO3": 12 * units.USD_2021 / units.kg,  # lithium carbonate
+                "CoC2O4": 60 * units.USD_2021 / units.kg,  # TODO: add cobalt oxalate price
+            }
+            # retentate raw materials
+            # TODO: add proper cost values
+            # assumes 1:1 stoichiometry of (NH4)2C2O4:CoC2O4
+            molar_mass_cobalt_oxalate = 0.147  # kg/mol
+            molar_mass_ammonium_oxalate = 0.124  # kg/mol
+            retentate_raw_materials = {
+                "(NH4)2C2O4": m.prec_mass_co
+                * molar_mass_ammonium_oxalate
+                / molar_mass_cobalt_oxalate,
+            }
+            m.fs.precipitator["retentate"].costing = UnitModelCostingBlock(
+                flowsheet_costing_block=m.fs.costing,
+                costing_method=DiafiltrationCostingData.cost_precipitator,
+                costing_method_arguments={
+                    "precip_volume": m.fs.precipitator["retentate"].volume,
+                    "material_inlet_rates": retentate_raw_materials,
+                    "default_market_prices": default_market_prices,
+                    "simple_costing": simple_costing,
+                },
+            )
+            # permeate raw materials
+            # assumes 1:1 stoichiometry of Na2CO3:Li2CO3
+            molar_mass_lithium_carbonate = 0.0739  # kg/mol
+            molar_mass_soda_ash = 0.106  # kg/mol
+            permeate_raw_materials = {
+                "Na2CO3": m.prec_mass_li
+                * molar_mass_soda_ash
+                / molar_mass_lithium_carbonate,
+            }
+            m.fs.precipitator["permeate"].costing = UnitModelCostingBlock(
+                flowsheet_costing_block=m.fs.costing,
+                costing_method=DiafiltrationCostingData.cost_precipitator,
+                costing_method_arguments={
+                    "precip_volume": m.fs.precipitator["permeate"].volume,
+                    "material_inlet_rates": permeate_raw_materials,
+                    "default_market_prices": default_market_prices,
+                    "simple_costing": simple_costing,
+                },
+            )
 
-        m.fs.costing.cost_process()
+        # Operation parameters to use later
+        hours_per_shift = 8
+        shifts_per_day = 3
+        operating_days_per_year = 336
+
+        m.fs.annual_operating_hours = Param(
+            initialize=hours_per_shift * shifts_per_day * operating_days_per_year,
+            mutable=True,
+            units=pyunits.hours / pyunits.a,
+        )
+
+        # Define the recovery rate
+        if self.precipitate:
+            Li_product = m.prec_mass_li
+            Co_product = m.prec_mass_co
+        else:
+            Li_product = m.rec_mass_li
+            Co_product = m.rec_mass_co
+
+        m.fs.recovery_rate_per_year = Expression(
+            expr=pyunits.convert(
+                (Li_product + Co_product) * m.fs.annual_operating_hours,
+                to_units=pyunits.kg / pyunits.year,
+            )
+        )
+
+        m.fs.costing.build_process_costs(
+            Lang_factor=2,  # includes installation, material, construction
+            labor_types=[],  # labor costs already included in maintenance, admin
+            fixed_OM=True,
+            variable_OM=True,
+            resources=[],  # List of strings of resources.
+            rates=[],  # Resource consumption rate.
+            prices={},  # Resource prices is not considered.
+            recovery_rate_per_year=m.fs.recovery_rate_per_year,
+            pure_product_output_rates={
+                # 'Li': m.prec_mass_li,
+                # 'Co': m.prec_mass_co,
+                'Li2CO3': m.prec_mass_li,
+                'CoC2O4': m.prec_mass_co,
+            },
+            sale_prices=default_market_prices,
+            CE_index_year="2021",
+            calculate_NPV=True,
+        )
+
+        # m.fs.costing.cost_process()
 
     def add_costing_scaling(self, m, NS, simple_costing):
         """
@@ -1281,6 +1381,7 @@ class DiafiltrationModel:
         m.prec_li_lb.activate()
 
         def cost_obj(m):
-            return m.fs.costing.total_annualized_cost
+            # return m.fs.costing.total_annualized_cost
+            return m.fs.costing.pv_revenue + m.fs.costing.pv_capital_cost + m.fs.costing.pv_operating_cost
 
-        m.cost_objective = Objective(rule=cost_obj)
+        m.cost_objective = Objective(rule=cost_obj, sense=maximize)
