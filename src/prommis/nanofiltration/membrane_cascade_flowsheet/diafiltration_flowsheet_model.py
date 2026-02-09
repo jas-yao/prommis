@@ -163,6 +163,35 @@ class DiafiltrationModel:
             if i.lb == 1e-8 and "stage" not in i.name:
                 i.setlb(0)
 
+        # set upper bounds
+        for i in m.component_data_objects(Var, active=True):
+            if 'flow_vol' in i.name or 'mass_solute' in i.name:
+                i.setlb(1e-8)
+                i.setub(10000)
+
+        return m
+
+    def build_full_flowsheet(self, mixing, LiLB, CoLB, periods):
+        """Build the full flowsheet with costing and multiperiod setup."""
+        m = self.build_flowsheet(mixing=mixing)
+        self.initialize(m, mixing=mixing, precipitate=True)
+        self.unfix_dof(m, mixing=mixing, precipitate=True)
+        m.fs.precipitator['retentate'].V.unfix()
+        m.fs.precipitator['permeate'].V.unfix()
+        m.fs.precipitator['retentate'].yields['solvent', 'recycle'].unfix()
+        m.fs.precipitator['permeate'].yields['solvent', 'recycle'].unfix()
+        m.fs.precipitator['retentate'].split_inlet['bypass'].unfix()
+        m.fs.precipitator['permeate'].split_inlet['bypass'].unfix()
+
+        # costing setup
+        # m.fs.split_diafiltrate.inlet.flow_vol.setub(10000)
+        # m = costing_model(m).build_costing()
+        # m.R = LiLB
+        # m.Rco = CoLB
+        # m = self.create_multiperiod(m, periods)
+        # m.R = LiLB
+        # m.Rco = CoLB
+
         return m
 
     def add_stages(self, m):
@@ -616,7 +645,7 @@ class DiafiltrationModel:
         """Add precipitator units."""
         m.fs.precipitator = Precipitator(
             ["retentate", "permeate"],
-            outlet_list=["solid", "recycle"],
+            outlet_list=['solid', 'downstream', 'recycle'],
             yields=self.perc_precipitate,
             property_package=m.fs.properties,
             material_balance_type=MaterialBalanceType.componentTotal,
@@ -1093,6 +1122,10 @@ class DiafiltrationModel:
             m.fs.split_diafiltrate.inlet.flow_vol.setub(self.diaf["solvent"])
             m.fs.precipitator["retentate"].volume.unfix()
             m.fs.precipitator["permeate"].volume.unfix()
+            m.fs.precipitator['retentate'].yields['solvent', 'recycle'].unfix()
+            m.fs.precipitator['permeate'].yields['solvent', 'recycle'].unfix()
+            m.fs.precipitator['retentate'].split_inlet['bypass'].unfix()
+            m.fs.precipitator['permeate'].split_inlet['bypass'].unfix()
 
     def model_scaling(self, m):
         """Apply model scaling."""
