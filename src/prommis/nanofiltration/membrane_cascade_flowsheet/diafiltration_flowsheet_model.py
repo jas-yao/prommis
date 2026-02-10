@@ -1232,14 +1232,36 @@ class DiafiltrationModel:
             # cobalt oxalate: https://met3dp.sg/advanced-cobalt-oxalatekey-cutting-edge-technologies/
             #     NOTE: Also very difficult to find... Source above is orders of magnitude larger than Li
             # lithium (carbonate) and cobalt: available from various sources like USGS, LME
+
+            # create parameters for this...
+            m.fs.soda_ash_price = Param(
+                initialize=0.13,
+                mutable=True,
+                units=units.USD_2021 / units.kg
+            )
+            m.fs.ammonium_oxalate_price = Param(
+                initialize=3.10,
+                mutable=True,
+                units=units.USD_2016 / units.kg
+            )
+            m.fs.lithium_carbonate_price = Param(
+                initialize=10,
+                mutable=True,
+                units=units.USD_2021 / units.kg
+            )
+            m.fs.cobalt_oxalate_price = Param(
+                initialize=40,
+                mutable=True,
+                units=units.USD_2021 / units.kg
+            )
+
             default_market_prices = {
-                "Na2CO3": 0.13 * units.USD_2021 / units.kg,  # soda ash
-                "(NH4)2C2O4": 3.10
-                * units.USD_2016
-                / units.kg,  # TODO: add ammonium oxalate cost
-                "Li2CO3": 12 * units.USD_2021 / units.kg,  # lithium carbonate
-                "CoC2O4": 60 * units.USD_2021 / units.kg,  # TODO: add cobalt oxalate price
+                "Na2CO3": m.fs.soda_ash_price,
+                "(NH4)2C2O4": m.fs.ammonium_oxalate_price,
+                "Li2CO3": m.fs.lithium_carbonate_price,
+                "CoC2O4": m.fs.cobalt_oxalate_price,
             }
+
             # retentate raw materials
             # TODO: add proper cost values
             # assumes 1:1 stoichiometry of (NH4)2C2O4:CoC2O4
