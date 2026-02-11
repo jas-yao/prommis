@@ -1158,6 +1158,22 @@ class DiafiltrationModel:
             discount_percentage=0.1,
             plant_lifetime=15,
         )
+        # Operation parameters to use later
+        hours_per_shift = 8
+        shifts_per_day = 3
+        operating_days_per_year = 336
+
+        m.fs.annual_operating_hours = Param(
+            initialize=hours_per_shift * shifts_per_day * operating_days_per_year,
+            mutable=True,
+            units=pyunits.hours / pyunits.a,
+        )
+        m.fs.costing.operating_hours_per_year = Param(
+            initialize=m.fs.annual_operating_hours.value,
+            mutable=True,
+            units=pyunits.hours / pyunits.a,
+        )
+
 
         # Create dummy variables to store the UnitModelCostingBlocks
         # These are needed because the sieving coefficient model does not account for pressure
@@ -1302,17 +1318,6 @@ class DiafiltrationModel:
                 },
             )
 
-        # Operation parameters to use later
-        hours_per_shift = 8
-        shifts_per_day = 3
-        operating_days_per_year = 336
-
-        m.fs.annual_operating_hours = Param(
-            initialize=hours_per_shift * shifts_per_day * operating_days_per_year,
-            mutable=True,
-            units=pyunits.hours / pyunits.a,
-        )
-
         # Define the recovery rate
         if self.precipitate:
             Li_product = m.prec_mass_li
@@ -1437,6 +1442,7 @@ class DiafiltrationModel:
 
         def cost_obj(m):
             # return m.fs.costing.total_annualized_cost
-            return m.fs.costing.pv_revenue + m.fs.costing.pv_capital_cost + m.fs.costing.pv_operating_cost
+            # return m.fs.costing.pv_revenue + m.fs.costing.pv_capital_cost + m.fs.costing.pv_operating_cost
+            return m.fs.costing.npv
 
         m.cost_objective = Objective(rule=cost_obj, sense=maximize)
