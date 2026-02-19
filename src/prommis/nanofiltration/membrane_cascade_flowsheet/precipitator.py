@@ -95,7 +95,7 @@ class SplitterData(SeparatorData):
         #            if i != 'solvent']
         # or include generalization for some water in precipitate
         solutes = self.mixed_state.component_list
-        self.yields = Var(solutes, self.outlet_idx)
+        self.yields = Var(solutes, self.outlet_idx, bounds=(0,1))
 
         #####
         # Add bypass
