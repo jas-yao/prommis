@@ -24,6 +24,7 @@ from pyomo.environ import (
     TransformationFactory,
     Var,
     maximize,
+    minimize,
     units,
     value,
 )
@@ -1149,30 +1150,33 @@ class DiafiltrationModel:
         atmospheric_pressure,
         operating_pressure,
         simple_costing,
+        npv,
     ):
         """
         Adds custom costing block to the flowsheet
         """
-        # m.fs.costing = DiafiltrationCosting()
-        m.fs.costing = QGESSCosting(
-            discount_percentage=0.1,
-            plant_lifetime=15,
-        )
-        # Operation parameters to use later
-        hours_per_shift = 8
-        shifts_per_day = 3
-        operating_days_per_year = 336
+        if npv:
+            m.fs.costing = QGESSCosting(
+                discount_percentage=0.1,
+                plant_lifetime=15,
+            )
+            # Operation parameters to use later
+            hours_per_shift = 8
+            shifts_per_day = 3
+            operating_days_per_year = 336
 
-        m.fs.annual_operating_hours = Param(
-            initialize=hours_per_shift * shifts_per_day * operating_days_per_year,
-            mutable=True,
-            units=pyunits.hours / pyunits.a,
-        )
-        m.fs.costing.operating_hours_per_year = Param(
-            initialize=m.fs.annual_operating_hours.value,
-            mutable=True,
-            units=pyunits.hours / pyunits.a,
-        )
+            m.fs.annual_operating_hours = Param(
+                initialize=hours_per_shift * shifts_per_day * operating_days_per_year,
+                mutable=True,
+                units=pyunits.hours / pyunits.a,
+            )
+            m.fs.costing.operating_hours_per_year = Param(
+                initialize=m.fs.annual_operating_hours.value,
+                mutable=True,
+                units=pyunits.hours / pyunits.a,
+            )
+        else:
+            m.fs.costing = DiafiltrationCosting()
 
 
         # Create dummy variables to store the UnitModelCostingBlocks
@@ -1318,42 +1322,43 @@ class DiafiltrationModel:
                 },
             )
 
-        # Define the recovery rate
-        if self.precipitate:
-            Li_product = m.prec_mass_li
-            Co_product = m.prec_mass_co
-        else:
-            Li_product = m.rec_mass_li
-            Co_product = m.rec_mass_co
+        if npv:
+            # Define the recovery rate
+            if self.precipitate:
+                Li_product = m.prec_mass_li
+                Co_product = m.prec_mass_co
+            else:
+                Li_product = m.rec_mass_li
+                Co_product = m.rec_mass_co
 
-        m.fs.recovery_rate_per_year = Expression(
-            expr=pyunits.convert(
-                (Li_product + Co_product) * m.fs.annual_operating_hours,
-                to_units=pyunits.kg / pyunits.year,
+            m.fs.recovery_rate_per_year = Expression(
+                expr=pyunits.convert(
+                    (Li_product + Co_product) * m.fs.annual_operating_hours,
+                    to_units=pyunits.kg / pyunits.year,
+                )
             )
-        )
 
-        m.fs.costing.build_process_costs(
-            Lang_factor=2,  # includes installation, material, construction
-            labor_types=[],  # labor costs already included in maintenance, admin
-            fixed_OM=True,
-            variable_OM=True,
-            resources=[],  # List of strings of resources.
-            rates=[],  # Resource consumption rate.
-            prices={},  # Resource prices is not considered.
-            recovery_rate_per_year=m.fs.recovery_rate_per_year,
-            pure_product_output_rates={
-                # 'Li': m.prec_mass_li,
-                # 'Co': m.prec_mass_co,
-                'Li2CO3': m.prec_mass_li,
-                'CoC2O4': m.prec_mass_co,
-            },
-            sale_prices=default_market_prices,
-            CE_index_year="2021",
-            calculate_NPV=True,
-        )
-
-        # m.fs.costing.cost_process()
+            m.fs.costing.build_process_costs(
+                Lang_factor=2,  # includes installation, material, construction
+                labor_types=[],  # labor costs already included in maintenance, admin
+                fixed_OM=True,
+                variable_OM=True,
+                resources=[],  # List of strings of resources.
+                rates=[],  # Resource consumption rate.
+                prices={},  # Resource prices is not considered.
+                recovery_rate_per_year=m.fs.recovery_rate_per_year,
+                pure_product_output_rates={
+                    # 'Li': m.prec_mass_li,
+                    # 'Co': m.prec_mass_co,
+                    'Li2CO3': m.prec_mass_li,
+                    'CoC2O4': m.prec_mass_co,
+                },
+                sale_prices=default_market_prices,
+                CE_index_year="2021",
+                calculate_NPV=True,
+            )
+        else:
+            m.fs.costing.cost_process()
 
     def add_costing_scaling(self, m, NS, simple_costing):
         """
@@ -1408,7 +1413,7 @@ class DiafiltrationModel:
         # Add scaling factors for poorly scaled constraints
         constraint_autoscale_large_jac(m)
 
-    def add_costing_objectives(self, m):
+    def add_costing_objectives(self, m, npv):
         """
         Method to add cost objective to flowsheet for performing optimization
 
@@ -1440,9 +1445,15 @@ class DiafiltrationModel:
         m.prec_co_lb.activate()
         m.prec_li_lb.activate()
 
-        def cost_obj(m):
-            # return m.fs.costing.total_annualized_cost
-            # return m.fs.costing.pv_revenue + m.fs.costing.pv_capital_cost + m.fs.costing.pv_operating_cost
-            return m.fs.costing.npv
+        if npv:
+            def cost_obj(m):
+                # return m.fs.costing.total_annualized_cost
+                # return m.fs.costing.pv_revenue + m.fs.costing.pv_capital_cost + m.fs.costing.pv_operating_cost
+                return m.fs.costing.npv
+            sense = maximize
+        else:
+            def cost_obj(m):
+                return m.fs.costing.total_annualized_cost
+            sense = minimize
 
-        m.cost_objective = Objective(rule=cost_obj, sense=maximize)
+        m.cost_objective = Objective(rule=cost_obj, sense=sense)

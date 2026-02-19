@@ -101,7 +101,8 @@ report_statistics(m)
 costing = True
 atmospheric_pressure = 101.325  # ambient pressure, kPa
 operating_pressure = 145  # nanofiltration operating pressure, psi
-simple_costing = False
+simple_costing = True
+npv = False
 if costing:
     df.add_costing(
         m,
@@ -113,13 +114,14 @@ if costing:
         atmospheric_pressure=atmospheric_pressure,
         operating_pressure=operating_pressure,
         simple_costing=simple_costing,
+        npv=npv,
     )
-    df.add_costing_objectives(m)
+    df.add_costing_objectives(m, npv=npv)
     # df.add_costing_scaling(m, NS=num_s, simple_costing=simple_costing)
 
 # set recovery lower bounds
-lithium_recovery = 0
-cobalt_recovery = 0
+lithium_recovery = 0.7
+cobalt_recovery = 0.7
 m.fs.lithium_carbonate_price = 30
 # m.fs.cobalt_oxalate_price = 30
  
