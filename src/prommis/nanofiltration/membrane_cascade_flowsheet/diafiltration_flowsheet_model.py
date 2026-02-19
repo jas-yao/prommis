@@ -164,10 +164,10 @@ class DiafiltrationModel:
                 i.setlb(0)
 
         # set upper bounds
-        for i in m.component_data_objects(Var, active=True):
-            if 'flow_vol' in i.name or 'mass_solute' in i.name:
-                i.setlb(1e-8)
-                i.setub(10000)
+        # for i in m.component_data_objects(Var, active=True):
+        #     if 'flow_vol' in i.name or 'mass_solute' in i.name:
+        #         i.setlb(1e-8)
+        #         i.setub(10000)
 
         return m
 
