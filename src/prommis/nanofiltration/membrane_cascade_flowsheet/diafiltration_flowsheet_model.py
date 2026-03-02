@@ -1457,3 +1457,127 @@ class DiafiltrationModel:
             sense = minimize
 
         m.cost_objective = Objective(rule=cost_obj, sense=sense)
+
+
+    def multiperiod(self, old_m, T, design=[]):
+        """
+        Convert a given model into a multi-stage model.
+
+        :param old_m: the original single-stage model
+        :T: the number of time periods
+        :design: A list of first-stage (design) variables
+        :return: model containing T periods each a clone of the original model
+        """
+        # new model to contain all periods
+        m = ConcreteModel()
+        m.T = RangeSet(T)    # time periods
+
+        # create indexed blocks for each period
+        @m.Block(m.T)
+        def period(b, t):
+            b.t = Param(initialize=t)
+
+        # deactivate the objectives in old_m
+        for obj in list(old_m.component_data_objects(Objective)):
+            obj.deactivate()
+
+        # make a clone of old_m and transfer it into each new indexed block
+        # design variables are excluded from the deep copy
+        for t in m.period:
+            # new_block = selective_clone(old_m, design)
+            new_block = old_m.clone()
+            m.period[t].transfer_attributes_from(new_block)
+
+        # the new objective would have to be specified manually outside
+        # of this function.
+        return m
+
+    #####################
+    # Multiperiod methods
+    #####################
+    def create_multiperiod(self, m, T):
+        """Create a multiperiod diafiltration model."""
+        mult = self.multiperiod(m, T)
+        self.link_cons(mult)
+        self.add_multiperiod_objectives(mult)
+
+        return mult
+
+    def link_cons(self, mult):
+        """Add constraint linking stage lengths."""
+        # add linking rule for first stage design variables
+        def link_membrane_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.stage[1].length\
+                == mult.period[t-1].fs.stage[1].length
+        mult.membrane_linking = Constraint(mult.T, rule=link_membrane_rule)
+
+        def link_precipitator_p_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['permeate'].V\
+                == mult.period[t-1].fs.precipitator['permeate'].V
+        mult.precipitator_p_linking = Constraint(mult.T, rule=link_precipitator_p_rule)
+
+        def link_precipitator_r_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['retentate'].V\
+                == mult.period[t-1].fs.precipitator['retentate'].V
+        mult.precipitator_r_linking = Constraint(mult.T, rule=link_precipitator_r_rule)
+
+        def link_pump_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].costing.P_inst\
+                == mult.period[t-1].costing.P_inst
+        mult.pump_linking = Constraint(mult.T, rule=link_pump_rule)
+
+    def add_multiperiod_objectives(self, mult):
+        """Add Co/Li objective functions."""
+        # add multiperiod costing objective
+        mult.costing_obj = Objective(
+            expr=(1/len(mult.T)*sum(mult.period[t].costing.RR*mult.period[t].costing.C_memb
+                                    + mult.period[t].costing.C_pump_op for t in mult.T)
+                  + mult.period[1].costing.eps*(
+                    sum(mult.period[1].costing.C_prec[i] for i in mult.period[1].precips)
+                    + mult.period[1].costing.C_memb
+                    + mult.period[1].costing.C_pump)
+                )
+        )
+
+        # deactivate all previous Li lower bounds
+        for t in mult.T:
+            mult.period[t].prec_li_lb.deactivate()
+            mult.period[t].prec_co_lb.deactivate()
+
+        # R lower bound parameter for multiperiod model
+        mult.R = Param(initialize=0.8, mutable=True)
+
+        # new overall %recovery expression
+        mult.Co_recovery = Expression(
+            expr=(
+                sum(mult.period[t].prec_mass_co for t in mult.T)
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].mass_solute['Co']
+                    for t in mult.T)
+            )
+        )
+
+        # new overall % recovery for Li expression
+        mult.Li_recovery = Expression(
+            expr=(
+                sum(mult.period[t].prec_mass_li for t in mult.T)
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].mass_solute['Li']
+                    for t in mult.T)
+            )
+        )
+
+        # set multiperiod Li lower bound
+        mult.li_lb = Constraint(
+            expr=mult.Li_recovery >= mult.R
+        )
+        # set multiperiod Co lower bound
+        mult.co_lb = Constraint(
+            expr=mult.Co_recovery >= mult.Rco
+        )
