@@ -96,12 +96,14 @@ else:
 
 df.unfix_dof(m, mixing=mix_style, precipitate=precipitate)
 m.fs.split_diafiltrate.inlet.flow_vol.setub(2000)
+# m.fs.precipitator['retentate'].split_inlet['bypass'].fix(0)
+# m.fs.precipitator['permeate'].split_inlet['bypass'].fix(0)
 report_statistics(m)
 
 costing = True
 atmospheric_pressure = 101.325  # ambient pressure, kPa
 operating_pressure = 145  # nanofiltration operating pressure, psi
-simple_costing = True
+simple_costing = False
 npv = False
 if costing:
     df.add_costing(
@@ -119,11 +121,13 @@ if costing:
     df.add_costing_objectives(m, npv=npv)
     # df.add_costing_scaling(m, NS=num_s, simple_costing=simple_costing)
 
+report_statistics(m)
+
 # set recovery lower bounds
 lithium_recovery = 0.7
 cobalt_recovery = 0.7
-m.fs.lithium_carbonate_price = 30
-# m.fs.cobalt_oxalate_price = 30
+m.fs.lithium_carbonate_price = 0
+m.fs.cobalt_oxalate_price = 0
  
 solve_scaled_model(
     m,
@@ -158,4 +162,109 @@ utils.visualize_flows(
     num_boxes=num_s, num_sub_boxes=num_t, conf=mix_style, model=vals
 )
 
+import pyomo.environ as pyo
 
+T = 15
+avg_li = 0.7
+avg_co = 0.7
+
+m = df.build_full_flowsheet(mix_style, avg_li, avg_co, T)
+# m_init = df.build_full_flowsheet(mix_style, avg_li, avg_co, 1)
+# solver = SolverFactory('ipopt')
+# result = solver.solve(m_init, tee=True)
+# for t in range(1,T):
+#     m = df.build_full_flowsheet(mix_style, avg_li, avg_co, t+1)
+#     report_statistics(m)
+#     # copy solution of previous model
+#     for var in m_init.component_data_objects(pyo.Var):
+#         new_var = m.find_component(var.name)
+#         if new_var is not None:
+#             new_var.value = var.value
+#     solver = SolverFactory('ipopt')
+#     result = solver.solve(m, tee=True)
+
+#     # set current solution as initialization for next model
+#     m_init = m
+    
+# m = df.build_full_flowsheet(mix_style, 0.5, 0., 15)
+import numpy as np
+# co_price = np.linspace(40,0, 15)
+for t in m.period:
+    # m.period[t].cobalt_oxalate_price.pprint()
+    # print(co_price[t-1])
+    # m.period[t].fs.cobalt_oxalate_price= float(co_price[t-1])
+    m.period[t].fs.cobalt_oxalate_price= 7
+    m.period[t].fs.lithium_carbonate_price= 1
+    m.period[t].fs.ammonium_oxalate_price= 3.1
+    m.period[t].fs.soda_ash_price= 0.13
+    # m.period[t].fs.ammonium_oxalate_price= 3.1 + 23
+    # m.period[t].fs.soda_ash_price= 0.13 + 7
+    m.period[t].fs.split_feed.mixed_state[0].flow_vol.fix(100)
+    m.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co'].fix(1700/2)
+    m.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li'].fix(170/2)
+    # m.period[t].fs.precipitator['retentate'].split_inlet['bypass'].fix(0)
+    # m.period[t].fs.precipitator['permeate'].split_inlet['bypass'].fix(0)
+    # m.period[t].cobalt_oxalate_price.pprint()
+
+report_statistics(m)
+solver = SolverFactory('ipopt')
+result = solver.solve(m, tee=True)
+
+print(pyo.value(m.Li_recovery))
+print(pyo.value(m.Co_recovery))
+
+# plotting results
+import numpy as np
+import matplotlib.pyplot as plt
+
+years = np.arange(1, T+1)
+plt.figure(figsize=(10,6))
+rec_li = np.array([pyo.value(m.period[t].prec_perc_li)*100 for t in m.period])
+rec_co = np.array([pyo.value(m.period[t].prec_perc_co)*100 for t in m.period])
+plt.plot(years, rec_co)
+plt.plot(years, rec_li)
+plt.legend(['Co Recovery', 'Li Recovery'])
+plt.xlabel("Year")
+plt.ylabel("Recovery [%]")
+plt.tight_layout()
+plt.show()
+
+
+# Years 0 ... T
+years = np.arange(0, T+1)
+
+# Cash flow components (already calculated values)
+capital_costs   = np.array([pyo.value(m.period[1].fs.costing.pv_capital_cost)] + [0]*T)
+operating_costs = np.array([0] + [pyo.value(m.period[t].fs.costing.pv_operating_cost) for t in m.period])
+loan_costs      = np.array([0] + [pyo.value(m.period[t].fs.costing.pv_loan_interest) for t in m.period])
+revenue         = np.array([0] + [pyo.value(m.period[t].fs.costing.pv_revenue) for t in m.period])
+
+x = np.arange(len(years))
+width = 0.2
+
+plt.figure(figsize=(10,6))
+
+plt.bar(x - 1.5*width, capital_costs, width, label="Capital Costs")
+plt.bar(x - 0.5*width, operating_costs, width, label="Operating Costs")
+plt.bar(x + 0.5*width, loan_costs, width, label="Loan Costs")
+plt.bar(x + 1.5*width, revenue, width, label="Revenue")
+
+plt.axhline(0, color='black', linewidth=0.8)
+plt.xticks(x, years)
+plt.xlabel("Year")
+plt.ylabel("Cash Flow [$MM]")
+# plt.title("Cash Flow Components by Year")
+plt.legend()
+
+# Display NPV on the plot
+plt.text(
+    0.4, 0.95,
+    f"NPV = {pyo.value(m.cost_objective):,.0f}",
+    transform=plt.gca().transAxes,
+    fontsize=12,
+    verticalalignment="top",
+    bbox=dict(boxstyle="round", facecolor="white", alpha=0.8)
+)
+
+plt.tight_layout()
+plt.show()
