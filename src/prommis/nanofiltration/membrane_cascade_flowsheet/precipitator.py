@@ -101,7 +101,7 @@ class SplitterData(SeparatorData):
         # Add bypass
         #####
         bypass_flows = ['bypass', 'ro']
-        self.split_inlet = Var(bypass_flows)
+        self.split_inlet = Var(bypass_flows, bounds=(0,1))
         self.split_inlet_flows = Var(solutes, bypass_flows)
 
         # set initial bypass to 0
