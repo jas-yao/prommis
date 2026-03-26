@@ -243,6 +243,10 @@ def report_values(m, prec=True):
             pyo.value(m.fs.precipitator["retentate"].volume),
             pyo.value(m.fs.precipitator["permeate"].volume),
         ]
+        m.fs.precipitator['retentate'].yields['solvent', 'recycle'].pprint()
+        m.fs.precipitator['permeate'].yields['solvent', 'recycle'].pprint()
+        m.fs.precipitator['retentate'].split_inlet['bypass'].pprint()
+        m.fs.precipitator['permeate'].split_inlet['bypass'].pprint()
     return data
 
 
