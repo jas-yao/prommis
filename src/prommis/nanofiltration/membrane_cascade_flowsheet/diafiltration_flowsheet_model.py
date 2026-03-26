@@ -177,21 +177,22 @@ class DiafiltrationModel:
         m = self.build_flowsheet(mixing=mixing)
         self.initialize(m, mixing=mixing, precipitate=True)
         self.unfix_dof(m, mixing=mixing, precipitate=True)
-        m.fs.precipitator['retentate'].V.unfix()
-        m.fs.precipitator['permeate'].V.unfix()
+        m.fs.precipitator['retentate'].volume.unfix()
+        m.fs.precipitator['permeate'].volume.unfix()
         m.fs.precipitator['retentate'].yields['solvent', 'recycle'].unfix()
         m.fs.precipitator['permeate'].yields['solvent', 'recycle'].unfix()
         m.fs.precipitator['retentate'].split_inlet['bypass'].unfix()
         m.fs.precipitator['permeate'].split_inlet['bypass'].unfix()
+        m.fs.split_diafiltrate.inlet.flow_vol.setub(2000)
 
         # costing setup
         # m.fs.split_diafiltrate.inlet.flow_vol.setub(10000)
         # m = costing_model(m).build_costing()
         # m.R = LiLB
         # m.Rco = CoLB
-        # m = self.create_multiperiod(m, periods)
-        # m.R = LiLB
-        # m.Rco = CoLB
+        m = self.create_multiperiod(m, periods)
+        m.R = LiLB
+        m.Rco = CoLB
 
         return m
 
@@ -1151,14 +1152,15 @@ class DiafiltrationModel:
         operating_pressure,
         simple_costing,
         npv,
+        years=15,
     ):
         """
         Adds custom costing block to the flowsheet
         """
         if npv:
             m.fs.costing = QGESSCosting(
-                discount_percentage=0.1,
-                plant_lifetime=15,
+                discount_percentage=10,
+                plant_lifetime=years,
             )
             # Operation parameters to use later
             hours_per_shift = 8
@@ -1486,6 +1488,30 @@ class DiafiltrationModel:
         for t in m.period:
             # new_block = selective_clone(old_m, design)
             new_block = old_m.clone()
+
+            # add a costing block for corresponding time period
+            
+            costing = True
+            atmospheric_pressure = 101.325  # ambient pressure, kPa
+            operating_pressure = 145  # nanofiltration operating pressure, psi
+            simple_costing = True
+            npv = True
+            if costing:
+                self.add_costing(
+                    new_block,
+                    NS=self.ns,
+                    flux=self.flux,
+                    feed=self.feed,
+                    diaf=self.diaf,
+                    precipitate=self.precipitate,
+                    atmospheric_pressure=atmospheric_pressure,
+                    operating_pressure=operating_pressure,
+                    simple_costing=simple_costing,
+                    npv=npv,
+                    years=t
+                )
+                self.add_costing_objectives(new_block, npv=npv)
+            
             m.period[t].transfer_attributes_from(new_block)
 
         # the new objective would have to be specified manually outside
@@ -1516,36 +1542,81 @@ class DiafiltrationModel:
         def link_precipitator_p_rule(m, t):
             if t == mult.T.first():
                 return Constraint.Skip
-            return mult.period[t].fs.precipitator['permeate'].V\
-                == mult.period[t-1].fs.precipitator['permeate'].V
+            return mult.period[t].fs.precipitator['permeate'].volume\
+                == mult.period[t-1].fs.precipitator['permeate'].volume
         mult.precipitator_p_linking = Constraint(mult.T, rule=link_precipitator_p_rule)
 
         def link_precipitator_r_rule(m, t):
             if t == mult.T.first():
                 return Constraint.Skip
-            return mult.period[t].fs.precipitator['retentate'].V\
-                == mult.period[t-1].fs.precipitator['retentate'].V
+            return mult.period[t].fs.precipitator['retentate'].volume\
+                == mult.period[t-1].fs.precipitator['retentate'].volume
         mult.precipitator_r_linking = Constraint(mult.T, rule=link_precipitator_r_rule)
 
-        def link_pump_rule(m, t):
+        def link_ro_p_rule(m, t):
             if t == mult.T.first():
                 return Constraint.Skip
-            return mult.period[t].costing.P_inst\
-                == mult.period[t-1].costing.P_inst
-        mult.pump_linking = Constraint(mult.T, rule=link_pump_rule)
+            return mult.period[t].fs.precipitator['permeate'].yields['solvent', 'recycle']\
+                == mult.period[t-1].fs.precipitator['permeate'].yields['solvent', 'recycle']
+        mult.precipitator_p_ro_linking = Constraint(mult.T, rule=link_ro_p_rule)
 
+        def link_ro_r_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['retentate'].yields['solvent', 'recycle']\
+                == mult.period[t-1].fs.precipitator['retentate'].yields['solvent', 'recycle']
+        mult.precipitator_r_ro_linking = Constraint(mult.T, rule=link_ro_r_rule)
+
+        def link_feed_pump_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.feed_pump.costing.pump_installation_power_simple\
+                == mult.period[t-1].fs.feed_pump.costing.pump_installation_power_simple
+        mult.feed_pump_linking = Constraint(mult.T, rule=link_feed_pump_rule)
+
+        def link_diafiltrate_pump_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.diafiltrate_pump.costing.pump_installation_power_simple\
+                == mult.period[t-1].fs.diafiltrate_pump.costing.pump_installation_power_simple
+        mult.diafiltrate_pump_linking = Constraint(mult.T, rule=link_diafiltrate_pump_rule)
+
+    # TODO: This should be redone with the NPV objective
     def add_multiperiod_objectives(self, mult):
         """Add Co/Li objective functions."""
         # add multiperiod costing objective
-        mult.costing_obj = Objective(
-            expr=(1/len(mult.T)*sum(mult.period[t].costing.RR*mult.period[t].costing.C_memb
-                                    + mult.period[t].costing.C_pump_op for t in mult.T)
-                  + mult.period[1].costing.eps*(
-                    sum(mult.period[1].costing.C_prec[i] for i in mult.period[1].precips)
-                    + mult.period[1].costing.C_memb
-                    + mult.period[1].costing.C_pump)
+        # mult.costing_obj = Objective(
+        #     expr=(1/len(mult.T)*sum(mult.period[t].costing.RR*mult.period[t].costing.C_memb
+        #                             + mult.period[t].costing.C_pump_op for t in mult.T)
+        #           + mult.period[1].costing.eps*(
+        #             sum(mult.period[1].costing.C_prec[i] for i in mult.period[1].precips)
+        #             + mult.period[1].costing.C_memb
+        #             + mult.period[1].costing.C_pump)
+        #         )
+        # )
+
+        # overall NPV constraint with cash flows per year
+        mult.npv = Var(initialize=mult.period[1].fs.costing.npv)
+
+        @mult.Constraint()
+        def multiperiod_npv_constraint(b):
+            return (b.npv == b.period[1].fs.costing.pv_capital_cost
+                    + sum(
+                        b.period[t].fs.costing.pv_revenue
+                        + b.period[t].fs.costing.pv_loan_interest
+                        + b.period[t].fs.costing.pv_operating_cost 
+                        for t in mult.period
+                    )
                 )
-        )
+
+        def npv_obj(m):
+            return mult.npv
+
+        mult.cost_objective = Objective(rule=npv_obj, sense=maximize)
+
+        # deactivate all extraneous NPV objectives
+        for t in mult.T:
+            mult.period[t].cost_objective.deactivate()
 
         # deactivate all previous Li lower bounds
         for t in mult.T:
@@ -1553,13 +1624,14 @@ class DiafiltrationModel:
             mult.period[t].prec_co_lb.deactivate()
 
         # R lower bound parameter for multiperiod model
-        mult.R = Param(initialize=0.8, mutable=True)
+        mult.R = Param(initialize=0.7, mutable=True)
+        mult.Rco = Param(initialize=0.7, mutable=True)
 
         # new overall %recovery expression
         mult.Co_recovery = Expression(
             expr=(
                 sum(mult.period[t].prec_mass_co for t in mult.T)
-                / sum(mult.period[t].fs.split_feed.mixed_state[0].mass_solute['Co']
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co']
                     for t in mult.T)
             )
         )
@@ -1568,7 +1640,7 @@ class DiafiltrationModel:
         mult.Li_recovery = Expression(
             expr=(
                 sum(mult.period[t].prec_mass_li for t in mult.T)
-                / sum(mult.period[t].fs.split_feed.mixed_state[0].mass_solute['Li']
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li']
                     for t in mult.T)
             )
         )
@@ -1581,3 +1653,12 @@ class DiafiltrationModel:
         mult.co_lb = Constraint(
             expr=mult.Co_recovery >= mult.Rco
         )
+
+    # TODO: Steps for multiperiod NPV
+    # 0. Build costing model for single period model
+    # 1. clone model for N periods
+    # 2. Each period has its own PV OPEX/CAPEX.
+    # 3. Change the "N" year parameter for each period to correspond to the correct time. (potentially create a new parameter if "N" is not a parameter...)
+    #     - Perhaps instead of cloning, build the cost model with different N for each period....
+    # 4. NPV is the sum of PV OPEX/CAPEX over all periods...
+    #     - need to account for taxes/loans as well...
