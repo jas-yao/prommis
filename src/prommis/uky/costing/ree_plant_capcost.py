@@ -3396,7 +3396,12 @@ class QGESSCostingData(FlowsheetCostingBlockData):
             expressed as a decimal, N is the project lifetime, and g is the escalation rate
             (e.g. inflation) expressed as a decimal.
             """
-            return (1 - ((1 + g) ** (N)) * ((1 + r) ** (-N))) / (r - g)
+            # this is the closed form solution of sum(((1+g) ** (N-1))/((1+r) ** (N)))
+            # (Growing annuity formula)
+            # return (1 - ((1 + g) ** (N)) * ((1 + r) ** (-N))) / (r - g)
+
+            # for multiperiod, we don't sum here. We sum for final calculation of NPV over all periods
+            return ((1+g) ** (N-1))/((1+r) ** (N))
 
         # build constraints
 
@@ -3560,16 +3565,16 @@ class QGESSCostingData(FlowsheetCostingBlockData):
                         c.plant_lifetime / pyunits.year
                         + len(c.config.capital_expenditure_percentages),
                     )
-                    - series_present_worth_factor(
-                        pyunits.convert(
-                            c.discount_percentage, to_units=pyunits.dimensionless
-                        ),
-                        pyunits.convert(
-                            c.operating_inflation_percentage,
-                            to_units=pyunits.dimensionless,
-                        ),
-                        len(c.config.capital_expenditure_percentages),
-                    )
+                    # - series_present_worth_factor(
+                    #     pyunits.convert(
+                    #         c.discount_percentage, to_units=pyunits.dimensionless
+                    #     ),
+                    #     pyunits.convert(
+                    #         c.operating_inflation_percentage,
+                    #         to_units=pyunits.dimensionless,
+                    #     ),
+                    #     len(c.config.capital_expenditure_percentages),
+                    # )
                 ),
                 to_units=c.cost_units,
             )
@@ -3593,16 +3598,16 @@ class QGESSCostingData(FlowsheetCostingBlockData):
                         c.plant_lifetime / pyunits.year
                         + len(c.config.capital_expenditure_percentages),
                     )
-                    - series_present_worth_factor(
-                        pyunits.convert(
-                            c.discount_percentage, to_units=pyunits.dimensionless
-                        ),
-                        pyunits.convert(
-                            c.revenue_inflation_percentage,
-                            to_units=pyunits.dimensionless,
-                        ),
-                        len(c.config.capital_expenditure_percentages),
-                    )
+                    # - series_present_worth_factor(
+                    #     pyunits.convert(
+                    #         c.discount_percentage, to_units=pyunits.dimensionless
+                    #     ),
+                    #     pyunits.convert(
+                    #         c.revenue_inflation_percentage,
+                    #         to_units=pyunits.dimensionless,
+                    #     ),
+                    #     len(c.config.capital_expenditure_percentages),
+                    # )
                 ),
                 to_units=c.cost_units,
             )
