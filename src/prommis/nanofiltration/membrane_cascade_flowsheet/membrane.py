@@ -144,6 +144,25 @@ class MembraneData(MSContactorData):
 
     def add_membrane_constraints(self, solutes):
         """Add solute sieving, solvent flux, and LB/UB constraints."""
+        # add flow upper bounds
+        @self.Constraint(self.elements)
+        def max_allowable_inlet_flow(b, ele):
+            if ele == 1:
+                q_in = (
+                    b.retentate_inlet_state[0].flow_vol
+                    + b.retentate_side_stream_state[0, ele].flow_vol
+                )
+            else:
+                ele_prev = b.elements.prev(ele)
+                q_in = (
+                    b.retentate[0, ele_prev].flow_vol
+                    + b.retentate_side_stream_state[0, ele].flow_vol
+                )
+
+            # assume around 40 m^2 per tube element
+            # assume max feed flowrate of 17 m^3/hr for each tube element
+            return (q_in * units.hour / units.m**3) <= self.length/len(self.elements)/40*17
+        self.max_allowable_inlet_flow.deactivate()
 
         # add flow lower bounds
         # TODO we need to be careful of membrane length and initialization
