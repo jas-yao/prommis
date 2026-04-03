@@ -81,6 +81,9 @@ class MultistartSolve(object):
 
         # NOTE could have preprocessing/initialization/etc. steps here
         presolver = SolverFactory('gams:conopt')
+        presolver.options["add_options"] = [
+            "option reslim=10;",
+        ]
         NS = len(model.fs.stages)
         NT = len(model.fs.tubes)
         mix = self._mix
