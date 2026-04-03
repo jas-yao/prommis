@@ -420,16 +420,29 @@ class DiafiltrationCostingData(DiafiltrationCostingBlockData):
                 doc="Unit variable operating cost",
             )
 
+            # add installation flow for separating CAPEX and OPEX considerations
+            blk.install_inlet_vol_flow = Var(
+                initialize=0,
+                domain=NonNegativeReals,
+                bounds=(1e-4, 2000),
+                doc="Flow used to size pump installation (CAPEX)",
+                units=units.m**3 / units.hr
+            )
+
+            @blk.Constraint()
+            def install_flows_constraint(blk):
+                return blk.install_inlet_vol_flow >= inlet_vol_flow
+
             # Ref [4] Eqn 5
             # assumes stainless steel centrifugal pumps
             @blk.Constraint()
             def capital_cost_constraint(blk):
                 return blk.capital_cost == units.convert(
                     blk.base_pump_cost
-                    * (inlet_vol_flow * inlet_pressure) ** blk.pump_exponential_factor,
+                    * (blk.install_inlet_vol_flow * inlet_pressure) ** blk.pump_exponential_factor,
                     to_units=blk.costing_package.base_currency,
                 )
-
+            
             # calculate the pump head: pump Ref [1] Eqn 1.1
             blk.pump_head = Var(
                 initialize=10,
