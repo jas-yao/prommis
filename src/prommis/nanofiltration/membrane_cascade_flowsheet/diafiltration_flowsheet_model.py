@@ -7,12 +7,15 @@
 """Class for building the full IDAES diafiltration flowsheet."""
 
 import logging
+import utils
 
 from pyomo.core.base.param import ScalarParam
 from pyomo.core.expr import identify_components
 
 # Pyomo imports
 from pyomo.environ import (
+    SolverFactory,
+    assert_optimal_termination,
     ConcreteModel,
     Constraint,
     Expression,
@@ -32,6 +35,7 @@ from pyomo.network import Arc
 from pyomo.environ import units as pyunits
 
 # other imports
+from idaes.core.util.model_statistics import report_statistics
 import idaes.logger as idaeslog
 from idaes.core import (
     FlowsheetBlock,
@@ -169,15 +173,100 @@ class DiafiltrationModel:
             #     i.setub(1)
 
         # # set bounds
-        # for i in m.component_data_objects(Var, active=True):
-        #     if "flow_vol" in i.name or "mass_solute" in i.name:
-        #         i.setlb(0)
-        #         i.setub(1e6)
+        for i in m.component_data_objects(Var, active=True):
+            if "flow_vol" in i.name or "mass_solute" in i.name:
+                i.setlb(0)
+                i.setub(3.5e8)
 
         # for i in m.fs.component_data_objects(Var):
         #     if "split_fraction" in i.name:
         #         i.setub(1)
 
+        return m
+
+    def build_full_flowsheet(self, mixing, LiLB, CoLB, periods):
+        """Build the full flowsheet with costing and multiperiod setup."""
+        # m = self.build_flowsheet(mixing=mixing)
+        # self.initialize(m, mixing=mixing, precipitate=True)
+        # self.unfix_dof(m, mixing=mixing, precipitate=True)
+        # m.fs.precipitator['retentate'].volume.unfix()
+        # m.fs.precipitator['permeate'].volume.unfix()
+        # m.fs.precipitator['retentate'].yields['solvent', 'recycle'].unfix()
+        # m.fs.precipitator['permeate'].yields['solvent', 'recycle'].unfix()
+        # m.fs.precipitator['retentate'].split_inlet['bypass'].unfix()
+        # m.fs.precipitator['permeate'].split_inlet['bypass'].unfix()
+        # m.fs.split_diafiltrate.inlet.flow_vol.setub(2000)
+
+        # model initialization
+        m = self.build_flowsheet(mixing=mixing)
+        self.initialize(m, mixing=mixing, precipitate=self.precipitate)
+
+        self.unfix_dof(m, mixing=mixing, precipitate=self.precipitate)
+        m.fs.split_diafiltrate.inlet.flow_vol.setub(2000)
+        m.fs.split_diafiltrate.inlet.flow_vol.setlb(1e-11)
+        report_statistics(m)
+
+        # import pdb; pdb.set_trace()
+
+        # create single period for initialization
+        m_single = self.create_multiperiod(m, 1)
+        m_single.R = LiLB
+        m_single.Rco = CoLB
+        report_statistics(m_single)
+
+        # create multiperiod costing
+        m = self.create_multiperiod(m, periods)
+        m.R = LiLB
+        m.Rco = CoLB
+        report_statistics(m)
+
+        # initialize
+        # solve with only one period first 
+        solver = SolverFactory('multistart_solve')
+        solver.mix = mixing
+        solver.multiperiod = True
+        # solver.max_sense = True
+        solver.dsolver = 'gams:conopt'
+
+        result = solver.solve(m_single, tee=False)
+        # result = solver.solve(m_single, tee=True)
+        assert_optimal_termination(result)
+
+        # dt = DiagnosticsToolbox(m)
+        # some flows are at their bounds of zero
+        # dt.report_numerical_issues()
+
+        # Verify the feed pump operating pressure workaround is valid
+        # assume this additional cost is less than half a cent
+        if value(m_single.period[1].fs.feed_pump.costing.variable_operating_cost) >= 0.005:
+            raise ValueError(
+                "The variable  operating cost of the feed pump as calculated in the feed"
+                "pump costing block is not negligible. This operating cost is already"
+                "accounted for via the membrane's pressure drop specific energy consumption."
+            )
+
+        # NOTE These percent recoveries are for precipitators
+        m_single.period[1].prec_perc_co.display()
+        m_single.period[1].prec_perc_li.display()
+
+        # m.fs.costing.total_annualized_cost.display()
+
+        # Print all relevant flow information
+        vals = utils.report_values(m_single.period[1])
+        # utils.visualize_flows(
+        #     num_boxes=self.ns, num_sub_boxes=self.ns, conf=mixing, model=vals
+        # )
+
+        # copy single period solution
+        for var in m_single.component_data_objects(Var):
+            m.find_component(var.name).set_value(value(var))
+        
+        # for t in m.period:
+        #     # assuming that ordering in each model/block is the same...
+        #     for var1 in m_single.period[1].component_data_objects(Var):
+        #         for var2 in m.period[t].component_data_objects(Var):
+        #             var2.set_value(value(var1))
+                    
         return m
 
     def add_stages(self, m):
@@ -1223,6 +1312,7 @@ class DiafiltrationModel:
                 "simple_costing": simple_costing,
             },
         )
+
         # membrane stage cost blocks
         for n in range(1, NS + 1):
             m.fs.stage[n].costing = UnitModelCostingBlock(
@@ -1443,3 +1533,225 @@ class DiafiltrationModel:
             sense = minimize
 
         m.cost_objective = Objective(rule=cost_obj, sense=sense)
+
+    def multiperiod(self, old_m, T, design=[], npv=False):
+        """
+        Convert a given model into a multi-stage model.
+
+        :param old_m: the original single-stage model
+        :T: the number of time periods
+        :design: A list of first-stage (design) variables
+        :return: model containing T periods each a clone of the original model
+        """
+        # new model to contain all periods
+        m = ConcreteModel()
+        m.T = RangeSet(T)    # time periods
+
+        # create indexed blocks for each period
+        @m.Block(m.T)
+        def period(b, t):
+            b.t = Param(initialize=t)
+
+        # deactivate the objectives in old_m
+        for obj in list(old_m.component_data_objects(Objective)):
+            obj.deactivate()
+
+        # make a clone of old_m and transfer it into each new indexed block
+        # design variables are excluded from the deep copy
+        for t in m.period:
+            # new_block = selective_clone(old_m, design)
+            new_block = old_m.clone()
+
+            # add a costing block for corresponding time period
+            
+            costing = True
+            atmospheric_pressure = 101.325  # ambient pressure, kPa
+            operating_pressure = 145  # nanofiltration operating pressure, psi
+            simple_costing = False
+            npv = npv
+            if costing:
+                self.add_costing(
+                    new_block,
+                    NS=self.ns,
+                    flux=self.flux,
+                    feed=self.feed,
+                    diaf=self.diaf,
+                    precipitate=self.precipitate,
+                    atmospheric_pressure=atmospheric_pressure,
+                    operating_pressure=operating_pressure,
+                    simple_costing=simple_costing,
+                    npv=npv,
+                    years=t
+                )
+
+                # no revenue for now...
+                new_block.fs.soda_ash_price = 0
+                new_block.fs.ammonium_oxalate_price = 0
+                new_block.fs.lithium_carbonate_price = 0
+                new_block.fs.cobalt_oxalate_price = 0
+
+                self.add_costing_objectives(new_block, npv=npv)
+            
+            m.period[t].transfer_attributes_from(new_block)
+
+        # the new objective would have to be specified manually outside
+        # of this function.
+        return m
+
+    #####################
+    # Multiperiod methods
+    #####################
+    def create_multiperiod(self, m, T, npv=False):
+        """Create a multiperiod diafiltration model."""
+        mult = self.multiperiod(m, T, npv)
+        self.link_cons(mult)
+        self.add_multiperiod_objectives(mult, npv)
+
+        return mult
+
+    def link_cons(self, mult):
+        """Add constraint linking stage lengths."""
+        # add linking rule for first stage design variables
+        def link_membrane_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.stage[1].length\
+                == mult.period[t-1].fs.stage[1].length
+        mult.membrane_linking = Constraint(mult.T, rule=link_membrane_rule)
+
+        def link_precipitator_p_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['permeate'].volume\
+                == mult.period[t-1].fs.precipitator['permeate'].volume
+        mult.precipitator_p_linking = Constraint(mult.T, rule=link_precipitator_p_rule)
+
+        def link_precipitator_r_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['retentate'].volume\
+                == mult.period[t-1].fs.precipitator['retentate'].volume
+        mult.precipitator_r_linking = Constraint(mult.T, rule=link_precipitator_r_rule)
+
+        def link_ro_p_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['permeate'].yields['solvent', 'recycle']\
+                == mult.period[t-1].fs.precipitator['permeate'].yields['solvent', 'recycle']
+        mult.precipitator_p_ro_linking = Constraint(mult.T, rule=link_ro_p_rule)
+
+        def link_ro_r_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            return mult.period[t].fs.precipitator['retentate'].yields['solvent', 'recycle']\
+                == mult.period[t-1].fs.precipitator['retentate'].yields['solvent', 'recycle']
+        mult.precipitator_r_ro_linking = Constraint(mult.T, rule=link_ro_r_rule)
+
+        def link_feed_pump_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            # return mult.period[t].fs.feed_pump.costing.pump_installation_power_simple\
+            #     == mult.period[t-1].fs.feed_pump.costing.pump_installation_power_simple
+            return mult.period[t].fs.feed_pump.costing.install_inlet_vol_flow\
+                == mult.period[t-1].fs.feed_pump.costing.install_inlet_vol_flow
+        mult.feed_pump_linking = Constraint(mult.T, rule=link_feed_pump_rule)
+
+        def link_diafiltrate_pump_rule(m, t):
+            if t == mult.T.first():
+                return Constraint.Skip
+            # return mult.period[t].fs.diafiltrate_pump.costing.pump_installation_power_simple\
+            #     == mult.period[t-1].fs.diafiltrate_pump.costing.pump_installation_power_simple
+            return mult.period[t].fs.diafiltrate_pump.costing.install_inlet_vol_flow\
+                == mult.period[t-1].fs.diafiltrate_pump.costing.install_inlet_vol_flow
+        mult.diafiltrate_pump_linking = Constraint(mult.T, rule=link_diafiltrate_pump_rule)
+
+    # TODO: This should be redone with the NPV objective
+    def add_multiperiod_objectives(self, mult, npv=False):
+        """Add Co/Li objective functions."""
+        # add multiperiod costing objective
+        # mult.costing_obj = Objective(
+        #     expr=(1/len(mult.T)*sum(mult.period[t].costing.RR*mult.period[t].costing.C_memb
+        #                             + mult.period[t].costing.C_pump_op for t in mult.T)
+        #           + mult.period[1].costing.eps*(
+        #             sum(mult.period[1].costing.C_prec[i] for i in mult.period[1].precips)
+        #             + mult.period[1].costing.C_memb
+        #             + mult.period[1].costing.C_pump)
+        #         )
+        # )
+
+        if npv:
+            # overall NPV constraint with cash flows per year
+            mult.npv = Var(initialize=mult.period[1].fs.costing.npv)
+
+            @mult.Constraint()
+            def multiperiod_npv_constraint(b):
+                return (b.npv == b.period[1].fs.costing.pv_capital_cost
+                        + sum(
+                            b.period[t].fs.costing.pv_revenue
+                            + b.period[t].fs.costing.pv_loan_interest
+                            + b.period[t].fs.costing.pv_operating_cost 
+                            for t in mult.period
+                        )
+                    )
+
+            def npv_obj(m):
+                return mult.npv
+
+            mult.cost_objective = Objective(rule=npv_obj, sense=maximize)
+        else:
+            # overall NPV constraint with cash flows per year
+            mult.tac = Var(initialize=mult.period[1].fs.costing.total_annualized_cost)
+
+            @mult.Constraint()
+            def multiperiod_tac_constraint(b):
+                return (b.tac == b.period[1].fs.costing.total_capital_cost*b.period[1].fs.costing.factor_capital_annualization
+                        + sum(
+                            b.period[t].fs.costing.total_operating_cost
+                            for t in mult.period
+                        )
+                    )
+
+            def tac_obj(m):
+                return mult.tac
+
+            mult.cost_objective = Objective(rule=tac_obj, sense=minimize)
+
+        # deactivate all extraneous objectives
+        for t in mult.T:
+            mult.period[t].cost_objective.deactivate()
+
+        # deactivate all previous Li lower bounds
+        for t in mult.T:
+            mult.period[t].prec_li_lb.deactivate()
+            mult.period[t].prec_co_lb.deactivate()
+
+        # R lower bound parameter for multiperiod model
+        mult.R = Param(initialize=0.7, mutable=True)
+        mult.Rco = Param(initialize=0.7, mutable=True)
+
+        # new overall %recovery expression
+        mult.Co_recovery = Expression(
+            expr=(
+                sum(mult.period[t].prec_mass_co for t in mult.T)
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co']
+                    for t in mult.T)
+            )
+        )
+
+        # new overall % recovery for Li expression
+        mult.Li_recovery = Expression(
+            expr=(
+                sum(mult.period[t].prec_mass_li for t in mult.T)
+                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li']
+                    for t in mult.T)
+            )
+        )
+
+        # set multiperiod Li lower bound
+        mult.li_lb = Constraint(
+            expr=mult.Li_recovery >= mult.R
+        )
+        # set multiperiod Co lower bound
+        mult.co_lb = Constraint(
+            expr=mult.Co_recovery >= mult.Rco
+        )
