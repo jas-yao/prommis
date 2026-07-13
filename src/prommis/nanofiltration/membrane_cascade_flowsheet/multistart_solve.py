@@ -40,6 +40,8 @@ class MultistartSolve(object):
     _subsolver = None
     _label = None
     _mix = None
+    _multiperiod = False
+    _max_sense = False
 
     @property
     def label(self):
@@ -60,6 +62,27 @@ class MultistartSolve(object):
     def mix(self, name):
         """Set the superstructure config."""
         self._mix = name
+
+    @property
+    def multiperiod(self):
+        """Get the multiperiod setting."""
+        return self._multiperiod
+
+    @multiperiod.setter
+    def multiperiod(self, val):
+        """Set the multiperiod config."""
+        self._multiperiod = val 
+
+    @property
+    def max_sense(self):
+        """Get the minmax setting."""
+        return self._max_sense
+
+    @max_sense.setter
+    def max_sense(self, val):
+        """Set the minmax config."""
+        self._max_sense = val 
+
 
     @property
     def dsolver(self):
@@ -99,26 +122,48 @@ class MultistartSolve(object):
                                 TerminationCondition.locallyOptimal}
 
         # flows to fix for different initial points
-        init_flows = [
-            # feed
-            "fs.split_feed.split_fraction[0, outlet_1]",
-            "fs.split_feed.split_fraction[0, outlet_2]",
-            "fs.split_feed.split_fraction[0, outlet_3]",
-            # diafiltrate (not used in many cases)
-            # "fs.split_diafiltrate.split_fraction[0, outlet_1]",
-            # "fs.split_diafiltrate.split_fraction[0, outlet_2]",
-            # "fs.split_diafiltrate.split_fraction[0, outlet_3]",
-            # permeate
-            "fs.split_permeate[1].split_fraction[0, product]",
-            "fs.split_permeate[2].split_fraction[0, product]",
-            "fs.split_permeate[1].split_fraction[0, forward]",
-            "fs.split_permeate[2].split_fraction[0, forward]",
-            # retentate
-            "fs.split_retentate[2].split_fraction[0, product]",
-            "fs.split_retentate[3].split_fraction[0, product]",
-            "fs.split_retentate[2].split_fraction[0, recycle]",
-            "fs.split_retentate[3].split_fraction[0, recycle]",
-        ]
+        if self._multiperiod:
+            init_flows = [
+                # feed
+                "period[1].fs.split_feed.split_fraction[0, outlet_1]",
+                "period[1].fs.split_feed.split_fraction[0, outlet_2]",
+                "period[1].fs.split_feed.split_fraction[0, outlet_3]",
+                # diafiltrate (not used in many cases)
+                # "period[1].fs.split_diafiltrate.split_fraction[0, outlet_1]",
+                # "period[1].fs.split_diafiltrate.split_fraction[0, outlet_2]",
+                # "period[1].fs.split_diafiltrate.split_fraction[0, outlet_3]",
+                # permeate
+                "period[1].fs.split_permeate[1].split_fraction[0, product]",
+                "period[1].fs.split_permeate[2].split_fraction[0, product]",
+                "period[1].fs.split_permeate[1].split_fraction[0, forward]",
+                "period[1].fs.split_permeate[2].split_fraction[0, forward]",
+                # retentate
+                "period[1].fs.split_retentate[2].split_fraction[0, product]",
+                "period[1].fs.split_retentate[3].split_fraction[0, product]",
+                "period[1].fs.split_retentate[2].split_fraction[0, recycle]",
+                "period[1].fs.split_retentate[3].split_fraction[0, recycle]",
+            ]
+        else:
+            init_flows = [
+                # feed
+                "fs.split_feed.split_fraction[0, outlet_1]",
+                "fs.split_feed.split_fraction[0, outlet_2]",
+                "fs.split_feed.split_fraction[0, outlet_3]",
+                # diafiltrate (not used in many cases)
+                # "fs.split_diafiltrate.split_fraction[0, outlet_1]",
+                # "fs.split_diafiltrate.split_fraction[0, outlet_2]",
+                # "fs.split_diafiltrate.split_fraction[0, outlet_3]",
+                # permeate
+                "fs.split_permeate[1].split_fraction[0, product]",
+                "fs.split_permeate[2].split_fraction[0, product]",
+                "fs.split_permeate[1].split_fraction[0, forward]",
+                "fs.split_permeate[2].split_fraction[0, forward]",
+                # retentate
+                "fs.split_retentate[2].split_fraction[0, product]",
+                "fs.split_retentate[3].split_fraction[0, product]",
+                "fs.split_retentate[2].split_fraction[0, recycle]",
+                "fs.split_retentate[3].split_fraction[0, recycle]",
+            ]
 
         objs = {}
         solns = {}
@@ -175,8 +220,12 @@ class MultistartSolve(object):
         # final solve with best point
         print(objs)
         model = saved_model
-        load_sol(model, list(solns.values())[min_idx])
-        results = list(all_res.values())[min_idx]
+        if self._max_sense:
+            load_sol(model, list(solns.values())[max_idx])
+            results = list(all_res.values())[max_idx]
+        else:
+            load_sol(model, list(solns.values())[min_idx])
+            results = list(all_res.values())[min_idx]
 
         # for i in range(NS):
         #     # TODO: Maybe should initialize each time using the same starting point rather than using the previous for each iteration
