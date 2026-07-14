@@ -16,12 +16,11 @@ from prommis.nanofiltration.membrane_cascade_flowsheet import utils
 from prommis.nanofiltration.membrane_cascade_flowsheet.diafiltration_flowsheet_model import (
     DiafiltrationModel,
 )
-from multistart_solve import MultistartSolve
+from prommis.nanofiltration.membrane_cascade_flowsheet.multistart_solve import MultistartSolve
 from matplotlib import pyplot as plt
 import pyomo.environ as pyo
 from pyomo.opt import SolverStatus, TerminationCondition, SolverResults
 from idaes.core.util.model_statistics import report_statistics
-import utils
 import pyomo.contrib.pyros as pyros
 from pyros_setting import pyros_settings
 import logging

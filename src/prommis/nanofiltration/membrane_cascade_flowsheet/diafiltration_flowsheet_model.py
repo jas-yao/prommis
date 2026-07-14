@@ -7,7 +7,7 @@
 """Class for building the full IDAES diafiltration flowsheet."""
 
 import logging
-import utils
+from prommis.nanofiltration.membrane_cascade_flowsheet import utils
 
 from pyomo.core.base.param import ScalarParam
 from pyomo.core.expr import identify_components
