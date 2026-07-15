@@ -174,7 +174,7 @@ class DiafiltrationModel:
 
         # # set bounds
         for i in m.component_data_objects(Var, active=True):
-            if "flow_vol" in i.name or "mass_solute" in i.name:
+            if "flow_vol" in i.name or "mass_solute" in i.name or "material_transfer_term" in i.name:
                 i.setlb(0)
                 i.setub(3.5e8)
 

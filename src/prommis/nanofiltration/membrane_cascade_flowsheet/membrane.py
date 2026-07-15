@@ -204,8 +204,8 @@ class MembraneData(MSContactorData):
         # self.LN_F_out = Var(self.elements, initialize=5, bounds=(-18.42, 13.82))
         self.LN_M_in = Var(solutes, self.elements, initialize=5, bounds=(None, 20))
         self.LN_M_out = Var(solutes, self.elements, initialize=5, bounds=(None, 20)) 
-        self.LN_F_in = Var(self.elements, initialize=5, bounds=(None, 20))
-        self.LN_F_out = Var(self.elements, initialize=5, bounds=(None, 20))
+        self.LN_F_in = Var(self.elements, initialize=5, bounds=(None, 15))
+        self.LN_F_out = Var(self.elements, initialize=5, bounds=(None, 15))
 
         # set these as exponents to remove the logs
         #######################################################################
