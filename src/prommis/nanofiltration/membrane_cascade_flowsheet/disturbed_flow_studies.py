@@ -245,7 +245,7 @@ logger.setLevel(logging.DEBUG)
 # add console output handler
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
-fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}.log")
+fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}_periods_{T}.log")
 fh.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 logger.addHandler(fh)
