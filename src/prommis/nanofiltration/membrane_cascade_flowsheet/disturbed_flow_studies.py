@@ -26,7 +26,6 @@ from prommis.nanofiltration.membrane_cascade_flowsheet.pyros_setting import pyro
 import logging
 import numpy as np
 # from small_tilt_ell_unc_setup import unc_setup, construct_cov_mat
-import confidence_ellipsoid.confidence_ellipsoid as ce
 
 import logging
 
