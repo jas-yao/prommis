@@ -164,13 +164,13 @@ class DiafiltrationModel:
             self.precipitate_objectives(m)
 
         # set LB of all units outside of membranes to 0
-        for i in m.component_data_objects(Var):
-            # if i.lb == 1e-8 and "stage" not in i.name:
-            #     i.setlb(0)
-            if "LN" not in i.name:
-                i.setlb(0)
-            # if 'fraction' in i.name:
-            #     i.setub(1)
+#        for i in m.component_data_objects(Var):
+#            # if i.lb == 1e-8 and "stage" not in i.name:
+#            #     i.setlb(0)
+#            if "LN" not in i.name:
+#                i.setlb(0)
+#            # if 'fraction' in i.name:
+#            #     i.setub(1)
 
         # # set bounds
         for i in m.component_data_objects(Var, active=True):
@@ -202,8 +202,8 @@ class DiafiltrationModel:
         self.initialize(m, mixing=mixing, precipitate=self.precipitate)
 
         self.unfix_dof(m, mixing=mixing, precipitate=self.precipitate)
-        m.fs.split_diafiltrate.inlet.flow_vol.setub(2000)
-        m.fs.split_diafiltrate.inlet.flow_vol.setlb(1e-11)
+        m.fs.split_diafiltrate.inlet.flow_vol.setub(3000)
+        m.fs.split_diafiltrate.inlet.flow_vol.setlb(1e-6)
         report_statistics(m)
 
         # import pdb; pdb.set_trace()
@@ -218,6 +218,9 @@ class DiafiltrationModel:
         m = self.create_multiperiod(m, periods)
         m.R = LiLB
         m.Rco = CoLB
+#        for t in m.period:
+#            for var in m.period[t].fs.costing.component_data_objects(Var):
+#                var.setlb(0)
         report_statistics(m)
 
         # initialize
@@ -1708,7 +1711,7 @@ class DiafiltrationModel:
                         + sum(
                             b.period[t].fs.costing.total_operating_cost
                             for t in mult.period
-                        )
+                        )/len(mult.period)
                     )
 
             def tac_obj(m):

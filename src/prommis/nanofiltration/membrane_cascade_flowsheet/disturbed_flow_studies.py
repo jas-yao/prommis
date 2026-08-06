@@ -84,13 +84,13 @@ df = DiafiltrationModel(
 # multiperiod
 #################################
 
-T = 8
+T = 6
 m = df.build_full_flowsheet(mix_style, LiLB=0.7, CoLB=0.7, periods=T)
 # m.cost_objective.deactivate()
 # m.purity_obj = pyo.Objective(expr=m.period[1].purity_li, sense=pyo.maximize)
 # m.period[1].purity_li_lb.activate()
 # m.period[1].pure = 0.65
-solver = SolverFactory("gams:conopt")
+solver = SolverFactory("ipopt")
 result = solver.solve(m, tee=True)
 
 print(result)
@@ -186,7 +186,7 @@ choice = 'flow'
 ramp = 0.1
 add_multiperiod_unc_con(m, choice=choice)
 
-solver = SolverFactory("gams:conopt")
+solver = SolverFactory("ipopt")
 result = solver.solve(m, tee=True)
 
 uncparams = [m.dev]
@@ -227,6 +227,12 @@ param_stages = ComponentMap((uncparams[0][idx], idx) for idx in uncparams[0])
 m.pyros_separation_priority = pyo.Suffix(direction=pyo.Suffix.LOCAL)
 m.pyros_separation_priority[m.li_lb] = 10
 m.pyros_separation_priority[m.co_lb] = 10
+for t in m.period:
+    for i in m.period[t].fs.stages:
+        for j in m.period[t].fs.tubes:
+            m.pyros_separation_priority[getattr(m.period[t].fs.splitters[i], f"outlet_{j}_state")[0].flow_vol] = 5
+            m.pyros_separation_priority[getattr(m.period[t].fs.splitters[i], f"outlet_{j}_state")[0].flow_mass_solute['Co']] = 5
+            m.pyros_separation_priority[getattr(m.period[t].fs.splitters[i], f"outlet_{j}_state")[0].flow_mass_solute['Li']] = 5
 
 # solvers
 
@@ -244,7 +250,7 @@ logger.setLevel(logging.DEBUG)
 # add console output handler
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
-fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}_periods_{T}.log")
+fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}_periods_{T}_results_1.log")
 fh.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 logger.addHandler(fh)
@@ -308,10 +314,17 @@ for i in presult.model_data.master_results.master_model.scenarios[worstcase].sec
 
 alldrvars = np.array(alldrvars)
 
-np.set_printoptions(threshold=np.inf)
-print(np.round(alldrvars[:, :-1]))
-print(np.round(alldrvars[:, -1]))
-print([i[-1] for i in alldrvars_names])
+np.set_printoptions(threshold=np.inf, linewidth=np.inf, suppress=True, precision=2)
+
+with open(f"pyros_result_disturbed_{choice}_ramplim_{ramp}_periods_{T}_1.txt", "a") as f:
+    print(alldrvars[:, :-1], file=f)
+    print(alldrvars[:, -1], file=f)
+    print([i[-1] for i in alldrvars_names], file=f)
+    
+    for i in first:
+        print(i.value, i.name, file=f)
+    
+    print(worstcase, file=f)
 
 # for t in pyo.RangeSet(T): utils.report_values(m.period[t])
 
