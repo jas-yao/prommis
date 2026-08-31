@@ -17,6 +17,7 @@ from pyomo.environ import (
     SolverFactory,
     assert_optimal_termination,
     ConcreteModel,
+    Block,
     Constraint,
     Expression,
     Objective,
@@ -271,6 +272,23 @@ class DiafiltrationModel:
         #             var2.set_value(value(var1))
                     
         return m
+
+    def build_cascade_block(self, mixing, LiLB, CoLB, periods):
+        """Build the full cascade as a block for use in larger flowsheets."""
+        # create full membrane cascade flowsheet
+        m = self.build_full_flowsheet(mixing, LiLB, CoLB, periods)
+
+        # move all values to a block
+        temp_m = m.clone()
+        block = Block()
+        block.transfer_attributes_from(temp_m)
+
+        # deactivate objectives
+        for obj in block.component_data_objects(Objective):
+            obj.deactivate()
+
+        return block
+
 
     def add_stages(self, m):
         """Add membrane stages."""
