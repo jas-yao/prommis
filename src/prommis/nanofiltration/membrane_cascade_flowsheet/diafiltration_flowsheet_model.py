@@ -157,9 +157,9 @@ class DiafiltrationModel:
         self.add_diafiltrate(m)
         self.add_isotropic_stage_length(m)
         self.add_objectives(m)
+        self.mix_products(m)
 
         if self.precipitate:
-            self.mix_products(m)
             self.add_precipitators(m)
             self.connect_diafiltrate(m)
             self.precipitate_objectives(m)
@@ -250,13 +250,14 @@ class DiafiltrationModel:
             )
 
         # NOTE These percent recoveries are for precipitators
-        m_single.period[1].prec_perc_co.display()
-        m_single.period[1].prec_perc_li.display()
+        if self.precipitate:
+            m_single.period[1].prec_perc_co.display()
+            m_single.period[1].prec_perc_li.display()
 
         # m.fs.costing.total_annualized_cost.display()
 
         # Print all relevant flow information
-        vals = utils.report_values(m_single.period[1])
+        vals = utils.report_values(m_single.period[1], prec=self.precipitate)
         # utils.visualize_flows(
         #     num_boxes=self.ns, num_sub_boxes=self.ns, conf=mixing, model=vals
         # )
@@ -1218,8 +1219,11 @@ class DiafiltrationModel:
             m.fs.split_diafiltrate.inlet.flow_vol.setub(self.diaf["solvent"])
             m.fs.precipitator["retentate"].volume.unfix()
             m.fs.precipitator["permeate"].volume.unfix()
-            m.fs.precipitator["retentate"].yields["solvent", "recycle"].unfix()
-            m.fs.precipitator["permeate"].yields["solvent", "recycle"].unfix()
+            m.fs.precipitator["retentate"].yields["solvent", "recycle"].fix(0.6)
+            m.fs.precipitator["permeate"].yields["solvent", "recycle"].fix(0.6)
+            for sol in self.solutes:
+                m.fs.precipitator["retentate"].yields[sol, "recycle"].fix(0.005)
+                m.fs.precipitator["permeate"].yields[sol, "recycle"].fix(0.005)
             m.fs.precipitator["retentate"].split_inlet["bypass"].unfix()
             m.fs.precipitator["permeate"].split_inlet["bypass"].unfix()
 
@@ -1528,15 +1532,18 @@ class DiafiltrationModel:
         """
         m.co_obj.deactivate()
         m.li_obj.deactivate()
-        m.prec_co_obj.deactivate()
-        m.prec_li_obj.deactivate()
+        if self.precipitate:
+            m.prec_co_obj.deactivate()
+            m.prec_li_obj.deactivate()
 
+        # TODO This looks fishy. Could potentially cause a bug.
         m.co_lb.deactivate()
         m.li_lb.deactivate()
         m.purity_co_lb.deactivate()
         m.purity_li_lb.deactivate()
-        m.prec_co_lb.activate()
-        m.prec_li_lb.activate()
+        if self.precipitate:
+            m.prec_co_lb.activate()
+            m.prec_li_lb.activate()
 
         if npv:
 
@@ -1743,30 +1750,56 @@ class DiafiltrationModel:
 
         # deactivate all previous Li lower bounds
         for t in mult.T:
-            mult.period[t].prec_li_lb.deactivate()
-            mult.period[t].prec_co_lb.deactivate()
+            mult.period[t].co_lb.deactivate()
+            mult.period[t].li_lb.deactivate()
+            mult.period[t].purity_co_lb.deactivate()
+            mult.period[t].purity_li_lb.deactivate()
+            if self.precipitate:
+                mult.period[t].prec_co_lb.deactivate()
+                mult.period[t].prec_li_lb.deactivate()
+            # mult.period[t].prec_li_lb.deactivate()
+            # mult.period[t].prec_co_lb.deactivate()
 
         # R lower bound parameter for multiperiod model
         mult.R = Param(initialize=0.7, mutable=True)
         mult.Rco = Param(initialize=0.7, mutable=True)
 
         # new overall %recovery expression
-        mult.Co_recovery = Expression(
-            expr=(
-                sum(mult.period[t].prec_mass_co for t in mult.T)
-                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co']
-                    for t in mult.T)
+        if self.precipitate:
+            mult.Co_recovery = Expression(
+                expr=(
+                    sum(mult.period[t].prec_mass_co for t in mult.T)
+                    / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co']
+                        for t in mult.T)
+                )
             )
-        )
 
-        # new overall % recovery for Li expression
-        mult.Li_recovery = Expression(
-            expr=(
-                sum(mult.period[t].prec_mass_li for t in mult.T)
-                / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li']
-                    for t in mult.T)
+            # new overall % recovery for Li expression
+            mult.Li_recovery = Expression(
+                expr=(
+                    sum(mult.period[t].prec_mass_li for t in mult.T)
+                    / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li']
+                        for t in mult.T)
+                )
             )
-        )
+        else:
+            mult.Co_recovery = Expression(
+                expr=(
+                    sum(mult.period[t].rec_mass_co for t in mult.T)
+                    / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Co']
+                        for t in mult.T)
+                )
+            )
+
+            # new overall % recovery for Li expression
+            mult.Li_recovery = Expression(
+                expr=(
+                    sum(mult.period[t].rec_mass_li for t in mult.T)
+                    / sum(mult.period[t].fs.split_feed.mixed_state[0].flow_mass_solute['Li']
+                        for t in mult.T)
+                )
+            )
+            
 
         # set multiperiod Li lower bound
         mult.li_lb = Constraint(
