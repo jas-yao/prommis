@@ -260,7 +260,7 @@ def report_values(m, prec=True):
     return data
 
 
-def visualize_flows(num_boxes, num_sub_boxes, conf="stage", model=None):
+def visualize_flows(num_boxes, num_sub_boxes, num_sol, conf="stage", model=None, savefig=False):
     """Plot flowsheet of diafiltration system."""
     # Parameters for the boxes
     box_size = 1  # Size of each box (width and height)
@@ -282,8 +282,8 @@ def visualize_flows(num_boxes, num_sub_boxes, conf="stage", model=None):
             "diaf flows": [1] * num_boxes * num_sub_boxes,
             "recycle flows": [1] * num_boxes * num_sub_boxes,
             "inlet splitter flows": [1] * num_boxes * num_sub_boxes,
-            "Co product flows": [1] * num_boxes * 3,
-            "Li product flows": [1] * num_boxes * 3,
+            "Co product flows": [1] * num_boxes * num_sol,
+            "Li product flows": [1] * num_boxes * num_sol,
             "diafiltrate inlet": [1] * num_boxes * num_sub_boxes,
             "precipitate products retentate": [1] * num_boxes * num_sub_boxes,
             "precipitate products permeate": [1] * num_boxes * num_sub_boxes,
@@ -361,7 +361,7 @@ def visualize_flows(num_boxes, num_sub_boxes, conf="stage", model=None):
 
         # Draw arrows for product streams
         if i == num_boxes - 1 or conf != "classic":
-            if model["Li product flows"][i * 3] > tol:
+            if model["Li product flows"][i * num_sol] > tol:
                 ax.arrow(
                     x_start
                     + box_size
@@ -395,7 +395,7 @@ def visualize_flows(num_boxes, num_sub_boxes, conf="stage", model=None):
         )
         legflagret = False
         if conf != "classic":
-            if i != 0 and model["Co product flows"][i * 3] > tol:
+            if i != 0 and model["Co product flows"][i * num_sol] > tol:
                 ax.arrow(
                     x_start
                     + box_size
@@ -891,7 +891,10 @@ def visualize_flows(num_boxes, num_sub_boxes, conf="stage", model=None):
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, 0), ncol=3)
 
     # Show the plot
-    plt.show()
+    if savefig:
+        return fig, ax
+    else:
+        plt.show()
 
 
 def sep_dof(m, mixing, first, second):
