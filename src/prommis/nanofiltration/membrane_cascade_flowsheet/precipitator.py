@@ -104,6 +104,25 @@ class SplitterData(SeparatorData):
         self.split_inlet = Var(bypass_flows, bounds=(0, 1))
         self.split_inlet_flows = Var(solutes, bypass_flows)
 
+        # also adding concentration upper bounds
+        @self.Constraint(solutes, bypass_flows)
+        def conc_limits(b, sol, loc):
+            if sol == "Li":
+                conc_ub = 20 * units.kg / units.m**3  # kg/m^3
+            elif sol == "Co":
+                conc_ub = 200 * units.kg / units.m**3  # kg/m^3
+            else:
+                conc_ub = 200 * units.kg / units.m**3  # generic UB set to 200 kg/m^3
+            return (
+                conc_ub * b.split_inlet_flows["solvent", loc]
+                >= b.split_inlet_flows["solvent", loc]
+            )
+        # minimum flow for RO membrane elements
+        # 1.4 m^3/h minimum flow for 6 tubes with .14 recovery
+        @self.Constraint(doc="minimum flow for RO membrane element")
+        def ro_inlet_solvent_lb(b):
+            return self.split_inlet_flows["solvent", "ro"] >= 1.4/((1-.14)**(6-1))   # m^3/h
+
         # set initial bypass to 0
         self.split_inlet["bypass"].fix(1e-8)
 
@@ -135,8 +154,8 @@ class SplitterData(SeparatorData):
         self.yields["solvent", "recycle"].fix(0.5)
 
         # set solute recycle outlet to be 0
-        self.yields["Li", "recycle"].fix(1e-8)
-        self.yields["Co", "recycle"].fix(1e-8)
+        for sol in solutes:
+            self.yields[sol, "recycle"].fix(1e-8)
 
         #####
         # Product collection
