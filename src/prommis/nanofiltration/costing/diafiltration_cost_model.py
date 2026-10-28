@@ -614,6 +614,8 @@ class DiafiltrationCostingData(DiafiltrationCostingBlockData):
     def cost_precipitator(
         blk,
         precip_volume,
+        membrane_length,
+        membrane_width,
         precip_headspace=1.2,
         material_inlet_rates=None,
         default_market_prices=None,
@@ -772,6 +774,60 @@ class DiafiltrationCostingData(DiafiltrationCostingBlockData):
                 sum(
                     material_inlet_rates[p] * default_market_prices[p]
                     for p in material_inlet_rates.keys()
+                ),
+                to_units=blk.costing_package.base_currency
+                / blk.costing_package.base_period,
+            )
+
+        # temporary update to include costing for RO unit
+        blk.factor_membrane_replacement = Param(
+            initialize=0.2,
+            doc="Membrane replacement factor [fraction of membrane replaced/year]",
+            units=units.year**-1,
+        )
+        blk.membrane_cost = Param(
+            initialize=50,
+            doc="Membrane cost",
+            units=units.USD_2021 / (units.meter**2),  # TODO: validate reference year
+        )
+
+        blk.fixed_operating_cost = Var(
+            initialize=1e5,
+            domain=NonNegativeReals,
+            units=blk.costing_package.base_currency / blk.costing_package.base_period,
+            doc="Unit fixed operating cost",
+        )
+
+        # calculate membrane area
+        blk.membrane_area = Var(
+            initialize=2700,
+            domain=NonNegativeReals,
+            doc="Membrane area in square meters",
+            units=units.m**2,
+        )
+
+        @blk.Constraint()
+        def membrane_area_equation(blk):
+            return blk.membrane_area == units.convert(
+                (membrane_length * membrane_width), to_units=units.m**2
+            )
+
+        # formated as capital_cost - RHS - New RO terms == 0
+        blk.capital_cost_constraint.set_value(
+            blk.capital_cost_constraint.body
+            - units.convert(
+                (blk.membrane_cost * blk.membrane_area),
+                to_units=blk.costing_package.base_currency,
+            ) == blk.capital_cost_constraint.lower
+        )
+
+        @blk.Constraint()
+        def fixed_operating_cost_constraint(blk):
+            return blk.fixed_operating_cost == units.convert(
+                (
+                    blk.factor_membrane_replacement
+                    * blk.membrane_cost
+                    * blk.membrane_area
                 ),
                 to_units=blk.costing_package.base_currency
                 / blk.costing_package.base_period,

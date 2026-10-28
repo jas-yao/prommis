@@ -1219,8 +1219,8 @@ class DiafiltrationModel:
             m.fs.split_diafiltrate.inlet.flow_vol.setub(self.diaf["solvent"])
             m.fs.precipitator["retentate"].volume.unfix()
             m.fs.precipitator["permeate"].volume.unfix()
-            m.fs.precipitator["retentate"].yields["solvent", "recycle"].fix(0.6)
-            m.fs.precipitator["permeate"].yields["solvent", "recycle"].fix(0.6)
+            # m.fs.precipitator["retentate"].yields["solvent", "recycle"].fix(0.6)
+            # m.fs.precipitator["permeate"].yields["solvent", "recycle"].fix(0.6)
             for sol in self.solutes:
                 m.fs.precipitator["retentate"].yields[sol, "recycle"].fix(0.005)
                 m.fs.precipitator["permeate"].yields[sol, "recycle"].fix(0.005)
@@ -1394,6 +1394,8 @@ class DiafiltrationModel:
                 costing_method=DiafiltrationCostingData.cost_precipitator,
                 costing_method_arguments={
                     "precip_volume": m.fs.precipitator["retentate"].volume,
+                    "membrane_length": m.fs.precipitator["retentate"].ro_tubes,
+                    "membrane_width": 7.9 * units.m**2,  # PRO 4040 data sheet active area per tube
                     "material_inlet_rates": retentate_raw_materials,
                     "default_market_prices": default_market_prices,
                     "simple_costing": simple_costing,
@@ -1413,6 +1415,8 @@ class DiafiltrationModel:
                 costing_method=DiafiltrationCostingData.cost_precipitator,
                 costing_method_arguments={
                     "precip_volume": m.fs.precipitator["permeate"].volume,
+                    "membrane_length": m.fs.precipitator["permeate"].ro_tubes,
+                    "membrane_width": 7.9 * units.m**2,  # PRO 4040 data sheet active area per tube
                     "material_inlet_rates": permeate_raw_materials,
                     "default_market_prices": default_market_prices,
                     "simple_costing": simple_costing,
