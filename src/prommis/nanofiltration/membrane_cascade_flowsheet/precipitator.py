@@ -104,6 +104,33 @@ class SplitterData(SeparatorData):
         self.split_inlet = Var(bypass_flows, bounds=(0, 1))
         self.split_inlet_flows = Var(solutes, bypass_flows)
 
+        # also adding concentration upper bounds
+        @self.Constraint(solutes, bypass_flows)
+        def conc_limits(b, sol, loc):
+            if sol == "Li":
+                conc_ub = 20 * units.kg / units.m**3  # kg/m^3
+            elif sol == "Co":
+                conc_ub = 200 * units.kg / units.m**3  # kg/m^3
+            else:
+                conc_ub = 200 * units.kg / units.m**3  # generic UB set to 200 kg/m^3
+            return (
+                conc_ub * b.split_inlet_flows["solvent", loc]
+                >= b.split_inlet_flows["solvent", loc]
+            )
+        # minimum flow for RO membrane elements
+        # 1.4 m^3/h minimum flow for 6 tubes with .14 recovery
+        self.ro_tubes = Var(initialize=6, bounds=(1,6))
+        # self.ro_tubes.fix()
+        self.max_rec_per_tube = Param(initialize=0.14, mutable=True)
+        self.min_flow_per_tube = Param(initialize=1.4, mutable=True)
+
+        @self.Constraint(doc="minimum flow for RO membrane element")
+        def ro_inlet_solvent_lb(b):
+            return (
+                self.split_inlet_flows["solvent", "ro"]
+                >= self.min_flow_per_tube/((1-self.max_rec_per_tube)**(self.ro_tubes-1))
+            )   # m^3/h
+
         # set initial bypass to 0
         self.split_inlet["bypass"].fix(1e-8)
 
@@ -132,11 +159,25 @@ class SplitterData(SeparatorData):
         # Reverse osmosis
         #####
         # set 50% of solvent to go to recycle
-        self.yields["solvent", "recycle"].fix(0.5)
+        # self.yields["solvent", "recycle"].fix(0.5)
+
+        # solvent recovery constraint
+        @self.Constraint(doc="solvent recovery as a function of RO membrane tubes")
+        def ro_recycle_yield(b):
+            return (
+                # log(1 - self.yields["solvent", "recycle"])
+                # == log(1-self.max_rec_per_tube)*(self.ro_tubes)
+                self.yields["solvent", "recycle"]
+                == 1 - (1-self.max_rec_per_tube)**(self.ro_tubes)
+            )
 
         # set solute recycle outlet to be 0
-        self.yields["Li", "recycle"].fix(1e-8)
-        self.yields["Co", "recycle"].fix(1e-8)
+        for sol in solutes:
+            self.yields[sol, "recycle"].fix(1e-8)
+
+        # fix number of tubes to 1
+        self.ro_tubes.fix(1)
+        self.yields["solvent", "recycle"].unfix()
 
         #####
         # Product collection

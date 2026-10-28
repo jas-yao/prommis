@@ -250,7 +250,7 @@ logger.setLevel(logging.DEBUG)
 # add console output handler
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
-fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}_periods_{T}_results_1.log")
+fh = logging.FileHandler(f"disturbed_{choice}_ramplim_{ramp}_periods_{T}_upd-prod-collect.log")
 fh.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 logger.addHandler(fh)
@@ -316,7 +316,7 @@ alldrvars = np.array(alldrvars)
 
 np.set_printoptions(threshold=np.inf, linewidth=np.inf, suppress=True, precision=2)
 
-with open(f"pyros_result_disturbed_{choice}_ramplim_{ramp}_periods_{T}_1.txt", "a") as f:
+with open(f"pyros_result_disturbed_{choice}_ramplim_{ramp}_periods_{T}_upd-prod-collect.txt", "a") as f:
     print(alldrvars[:, :-1], file=f)
     print(alldrvars[:, -1], file=f)
     print([i[-1] for i in alldrvars_names], file=f)
@@ -324,7 +324,14 @@ with open(f"pyros_result_disturbed_{choice}_ramplim_{ramp}_periods_{T}_1.txt", "
     for i in first:
         print(i.value, i.name, file=f)
     
+    print('worst case scenario', file=f)
     print(worstcase, file=f)
+    print('first stage objective', file=f)
+    for i in presult.model_data.master_results.master_model.scenarios.keys():
+         print(i, pyo.value(presult.model_data.master_results.master_model.scenarios[i].first_stage_objective), file=f)
+    print('second stage objective', file=f)
+    for i in presult.model_data.master_results.master_model.scenarios.keys():
+         print(i, pyo.value(presult.model_data.master_results.master_model.scenarios[i].second_stage_objective), file=f)
 
 # for t in pyo.RangeSet(T): utils.report_values(m.period[t])
 
