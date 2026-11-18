@@ -252,12 +252,12 @@ class DiafiltrationModel:
 
         # Verify the feed pump operating pressure workaround is valid
         # assume this additional cost is less than half a cent
-        if value(m_single.period[1].fs.feed_pump.costing.variable_operating_cost) >= 0.005:
-            raise ValueError(
-                "The variable  operating cost of the feed pump as calculated in the feed"
-                "pump costing block is not negligible. This operating cost is already"
-                "accounted for via the membrane's pressure drop specific energy consumption."
-            )
+        # if value(m_single.period[1].fs.feed_pump.costing.variable_operating_cost) >= 0.005:
+        #     raise ValueError(
+        #         "The variable  operating cost of the feed pump as calculated in the feed"
+        #         "pump costing block is not negligible. This operating cost is already"
+        #         "accounted for via the membrane's pressure drop specific energy consumption."
+        #     )
 
         # NOTE These percent recoveries are for precipitators
         if self.precipitate:
@@ -1291,7 +1291,7 @@ class DiafiltrationModel:
         # Create dummy variables to store the UnitModelCostingBlocks
         # These are needed because the sieving coefficient model does not account for pressure
         m.fs.cascade = UnitModelBlock()  # to cost the pressure drop
-        m.fs.feed_pump = UnitModelBlock()  # to cost feed pump
+        # m.fs.feed_pump = UnitModelBlock()  # to cost feed pump
         m.fs.diafiltrate_pump = UnitModelBlock()  # to cost diafiltrate pump
 
         if not simple_costing:
@@ -1308,32 +1308,32 @@ class DiafiltrationModel:
                     ),  # cascade permeate
                 },
             )
-            m.fs.feed_pump.costing = UnitModelCostingBlock(
-                flowsheet_costing_block=m.fs.costing,
-                costing_method=DiafiltrationCostingData.cost_pump,
-                costing_method_arguments={
-                    "inlet_pressure": atmospheric_pressure * units.kPa,  # 14.7 psia
-                    "outlet_pressure": 1e-5  # assume numerically 0 since SEC accounts for feed pump OPEX
-                    * units.psi,  # this should make m.fs.feed_pump.costing.variable_operating_cost ~0
-                    "inlet_vol_flow": m.fs.split_feed.mixed_state[
-                        0
-                    ].flow_vol,  # * units.m**3 / units.h,  # feed
-                    "simple_costing": simple_costing,
-                },
-            )
-        else:
-            m.fs.feed_pump.costing = UnitModelCostingBlock(
-                flowsheet_costing_block=m.fs.costing,
-                costing_method=DiafiltrationCostingData.cost_pump,
-                costing_method_arguments={
-                    "inlet_pressure": atmospheric_pressure * units.kPa,  # 14.7 psia
-                    "outlet_pressure": operating_pressure * units.psi,
-                    "inlet_vol_flow": m.fs.split_feed.mixed_state[
-                        0
-                    ].flow_vol,  # * units.m**3 / units.h,  # feed
-                    "simple_costing": simple_costing,
-                },
-            )
+            # m.fs.feed_pump.costing = UnitModelCostingBlock(
+            #     flowsheet_costing_block=m.fs.costing,
+            #     costing_method=DiafiltrationCostingData.cost_pump,
+            #     costing_method_arguments={
+            #         "inlet_pressure": atmospheric_pressure * units.kPa,  # 14.7 psia
+            #         "outlet_pressure": 1e-5  # assume numerically 0 since SEC accounts for feed pump OPEX
+            #         * units.psi,  # this should make m.fs.feed_pump.costing.variable_operating_cost ~0
+            #         "inlet_vol_flow": m.fs.split_feed.mixed_state[
+            #             0
+            #         ].flow_vol,  # * units.m**3 / units.h,  # feed
+            #         "simple_costing": simple_costing,
+            #     },
+            # )
+        # else:
+            # m.fs.feed_pump.costing = UnitModelCostingBlock(
+            #     flowsheet_costing_block=m.fs.costing,
+            #     costing_method=DiafiltrationCostingData.cost_pump,
+            #     costing_method_arguments={
+            #         "inlet_pressure": atmospheric_pressure * units.kPa,  # 14.7 psia
+            #         "outlet_pressure": operating_pressure * units.psi,
+            #         "inlet_vol_flow": m.fs.split_feed.mixed_state[
+            #             0
+            #         ].flow_vol,  # * units.m**3 / units.h,  # feed
+            #         "simple_costing": simple_costing,
+            #     },
+            # )
 
         m.fs.diafiltrate_pump.costing = UnitModelCostingBlock(
             flowsheet_costing_block=m.fs.costing,
@@ -1494,13 +1494,13 @@ class DiafiltrationModel:
             m.scaling_factor[m.fs.stage[n].costing.fixed_operating_cost] = 1e-4
             m.scaling_factor[m.fs.stage[n].costing.membrane_area] = 1e-3
 
-        m.scaling_factor[m.fs.feed_pump.costing.capital_cost] = 1e-4
+        # m.scaling_factor[m.fs.feed_pump.costing.capital_cost] = 1e-4
         m.scaling_factor[m.fs.diafiltrate_pump.costing.capital_cost] = 1e-3
         m.scaling_factor[m.fs.diafiltrate_pump.costing.variable_operating_cost] = 1e-3
 
         if simple_costing:
-            m.scaling_factor[m.fs.feed_pump.costing.pump_power_factor_simple] = 1e-2
-            m.scaling_factor[m.fs.feed_pump.costing.variable_operating_cost] = 1e-4
+            # m.scaling_factor[m.fs.feed_pump.costing.pump_power_factor_simple] = 1e-2
+            # m.scaling_factor[m.fs.feed_pump.costing.variable_operating_cost] = 1e-4
             m.scaling_factor[m.fs.diafiltrate_pump.costing.pump_power_factor_simple] = (
                 1e-2
             )
@@ -1508,9 +1508,9 @@ class DiafiltrationModel:
         if not simple_costing:
             m.scaling_factor[m.fs.cascade.costing.variable_operating_cost] = 1e-5
             m.scaling_factor[m.fs.cascade.costing.pressure_drop] = 1e-2
-            m.scaling_factor[m.fs.feed_pump.costing.variable_operating_cost] = 1e-4
-            m.scaling_factor[m.fs.feed_pump.costing.pump_head] = 1e6
-            m.scaling_factor[m.fs.feed_pump.costing.pump_power] = 1e2
+            # m.scaling_factor[m.fs.feed_pump.costing.variable_operating_cost] = 1e-4
+            # m.scaling_factor[m.fs.feed_pump.costing.pump_head] = 1e6
+            # m.scaling_factor[m.fs.feed_pump.costing.pump_power] = 1e2
             m.scaling_factor[m.fs.diafiltrate_pump.costing.pump_head] = 1e-2
             m.scaling_factor[m.fs.diafiltrate_pump.costing.pump_power] = 1e-5
 
