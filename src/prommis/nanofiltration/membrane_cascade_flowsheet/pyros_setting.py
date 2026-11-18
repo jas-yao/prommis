@@ -27,7 +27,7 @@ def pyros_settings(m, mix):
             [
                 m.period[t].fs.stage[1].length,
                 m.period[t].fs.diafiltrate_pump.costing.install_inlet_vol_flow,
-                m.period[t].fs.feed_pump.costing.install_inlet_vol_flow,
+                # m.period[t].fs.feed_pump.costing.install_inlet_vol_flow,
                 m.period[t].fs.precipitator["retentate"].volume,
                 m.period[t].fs.precipitator["permeate"].volume,
                 m.period[t].fs.precipitator["retentate"].ro_tubes,

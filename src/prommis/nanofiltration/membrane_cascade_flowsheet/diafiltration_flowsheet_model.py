@@ -205,6 +205,12 @@ class DiafiltrationModel:
         self.unfix_dof(m, mixing=mixing, precipitate=self.precipitate)
         m.fs.split_diafiltrate.inlet.flow_vol.setub(3000)
         m.fs.split_diafiltrate.inlet.flow_vol.setlb(1e-6)
+
+        # unfix DoF for RO tubes in product collection
+        # either unfix here, or disable multi-period linking for this.
+        m.fs.precipitator['retentate'].ro_tubes.unfix()
+        m.fs.precipitator['permeate'].ro_tubes.unfix()
+        
         report_statistics(m)
 
         # import pdb; pdb.set_trace()
@@ -219,6 +225,10 @@ class DiafiltrationModel:
         m = self.create_multiperiod(m, periods)
         m.R = LiLB
         m.Rco = CoLB
+
+        # unfixing RO tubes leads to bad local optima...
+        m.period[1].fs.precipitator['retentate'].ro_tubes.fix()
+        m.period[1].fs.precipitator['permeate'].ro_tubes.fix()
 #        for t in m.period:
 #            for var in m.period[t].fs.costing.component_data_objects(Var):
 #                var.setlb(0)
@@ -1668,25 +1678,29 @@ class DiafiltrationModel:
         def link_ro_p_rule(m, t):
             if t == mult.T.first():
                 return Constraint.Skip
-            return mult.period[t].fs.precipitator['permeate'].yields['solvent', 'recycle']\
-                == mult.period[t-1].fs.precipitator['permeate'].yields['solvent', 'recycle']
+            # return mult.period[t].fs.precipitator['permeate'].yields['solvent', 'recycle']\
+            #     == mult.period[t-1].fs.precipitator['permeate'].yields['solvent', 'recycle']
+            return mult.period[t].fs.precipitator['permeate'].ro_tubes\
+                == mult.period[t-1].fs.precipitator['permeate'].ro_tubes
         mult.precipitator_p_ro_linking = Constraint(mult.T, rule=link_ro_p_rule)
 
         def link_ro_r_rule(m, t):
             if t == mult.T.first():
                 return Constraint.Skip
-            return mult.period[t].fs.precipitator['retentate'].yields['solvent', 'recycle']\
-                == mult.period[t-1].fs.precipitator['retentate'].yields['solvent', 'recycle']
+            # return mult.period[t].fs.precipitator['retentate'].yields['solvent', 'recycle']\
+            #     == mult.period[t-1].fs.precipitator['retentate'].yields['solvent', 'recycle']
+            return mult.period[t].fs.precipitator['retentate'].ro_tubes\
+                == mult.period[t-1].fs.precipitator['retentate'].ro_tubes
         mult.precipitator_r_ro_linking = Constraint(mult.T, rule=link_ro_r_rule)
 
-        def link_feed_pump_rule(m, t):
-            if t == mult.T.first():
-                return Constraint.Skip
-            # return mult.period[t].fs.feed_pump.costing.pump_installation_power_simple\
-            #     == mult.period[t-1].fs.feed_pump.costing.pump_installation_power_simple
-            return mult.period[t].fs.feed_pump.costing.install_inlet_vol_flow\
-                == mult.period[t-1].fs.feed_pump.costing.install_inlet_vol_flow
-        mult.feed_pump_linking = Constraint(mult.T, rule=link_feed_pump_rule)
+        # def link_feed_pump_rule(m, t):
+        #     if t == mult.T.first():
+        #         return Constraint.Skip
+        #     # return mult.period[t].fs.feed_pump.costing.pump_installation_power_simple\
+        #     #     == mult.period[t-1].fs.feed_pump.costing.pump_installation_power_simple
+        #     return mult.period[t].fs.feed_pump.costing.install_inlet_vol_flow\
+        #         == mult.period[t-1].fs.feed_pump.costing.install_inlet_vol_flow
+        # mult.feed_pump_linking = Constraint(mult.T, rule=link_feed_pump_rule)
 
         def link_diafiltrate_pump_rule(m, t):
             if t == mult.T.first():
