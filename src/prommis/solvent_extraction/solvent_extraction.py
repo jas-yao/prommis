@@ -112,6 +112,8 @@ ie. at the mixer tank outlet point.
 
 """
 
+from collections import OrderedDict
+
 from pyomo.common.config import Bool, ConfigDict, ConfigValue, In
 from pyomo.environ import Block, Constraint, Param, units, value
 from pyomo.network import Port
@@ -184,6 +186,7 @@ class SolventExtractionScaler(CustomScalerBase):
         Returns:
             None
         """
+        rxns = model.config.heterogeneous_reaction_package
 
         self.call_submodel_scaler_method(
             submodel=model.mscontactor,
@@ -193,9 +196,13 @@ class SolventExtractionScaler(CustomScalerBase):
         )
         for idx, con in model.distribution_extent_constraint.items():
             t, e, j = idx
+            if hasattr(rxns, "organic_aliases"):
+                org_species = rxns.organic_aliases[j]
+            else:
+                org_species = f"{j}_o"
             self.scale_constraint_by_component(
                 con,
-                model.mscontactor.organic[t, e].conc_mol_comp[f"{j}_o"],
+                model.mscontactor.organic[t, e].conc_mol_comp[org_species],
                 overwrite=overwrite,
             )
 
@@ -407,13 +414,24 @@ class SolventExtractionData(UnitModelBlockData):
             dynamic=self.config.dynamic,
         )
 
+        # TODO This constraint should live on the heterogeneous reaction
+        # block, not the SX block.
         def distribution_ratio_rule(b, t, s, e):
+            rxns = b.config.heterogeneous_reaction_package
+            if hasattr(rxns, "aqueous_aliases"):
+                aq_species = rxns.aqueous_aliases[e]
+            else:
+                aq_species = e
+            if hasattr(rxns, "organic_aliases"):
+                org_species = rxns.organic_aliases[e]
+            else:
+                org_species = f"{e}_o"
             return (
-                b.mscontactor.organic[t, s].conc_mol_comp[f"{e}_o"]
+                b.mscontactor.organic[t, s].conc_mol_comp[org_species]
                 == b.mscontactor.heterogeneous_reactions[t, s].distribution_coefficient[
                     e
                 ]
-                * b.mscontactor.aqueous[t, s].conc_mol_comp[e]
+                * b.mscontactor.aqueous[t, s].conc_mol_comp[aq_species]
             )
 
         self.distribution_extent_constraint = Constraint(
@@ -521,3 +539,33 @@ class SolventExtractionData(UnitModelBlockData):
         self.aqueous_outlet = Port(extends=self.mscontactor.aqueous_outlet)
         self.organic_inlet = Port(extends=self.mscontactor.organic_inlet)
         self.organic_outlet = Port(extends=self.mscontactor.organic_outlet)
+
+    def _get_stream_table_contents(self, time_point=0):
+        return self.mscontactor._get_stream_table_contents(time_point)
+
+    def _get_performance_contents(self, time_point=0):
+
+        out = dict(vars=OrderedDict(), exprs=OrderedDict(), params=OrderedDict())
+        if self.config.has_holdup:
+            for e in self.mscontactor.elements:
+                out["vars"][f"Aqueous phase frac stage {e}"] = (
+                    self.mscontactor.volume_frac_stream[time_point, e, "aqueous"]
+                )
+
+        if self.config.create_hydrostatic_pressure_terms:
+            out["params"]["Stage base area"] = self.area_cross_stage
+            out["params"]["Elevation"] = self.elevation
+
+        # Add expressions
+        for j in self.config.heterogeneous_reaction_package.element_list:
+            expr = 1
+            for e in self.mscontactor.elements:
+                expr *= self.mscontactor.heterogeneous_reactions[
+                    time_point, e
+                ].distribution_coefficient[j]
+
+            out["exprs"][f"Geometric mean distribution coefficient {j}"] = expr ** (
+                1 / len(self.mscontactor.elements)
+            )
+
+        return out

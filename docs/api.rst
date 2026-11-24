@@ -45,6 +45,15 @@ Precipitate
    prommis.precipitate.precipitate_liquid_properties
    prommis.precipitate.precipitate_solids_properties
 
+Comminution properties
+----------------------
+
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/module-with-contents.rst
+
+   prommis.comminution.properties.solid_psd_properties
+
 Crusher
 -------
 
@@ -89,13 +98,24 @@ Nanofiltration
    prommis.nanofiltration.nf_brine_plot
    prommis.nanofiltration.nf_brine
 
-CMI Precipitator 
+CMU Precipitator 
 ----------------
 
 .. autosummary::
    :toctree: _autosummary
    :template: autosummary/module-with-contents.rst
 
-   prommis.cmi_precipitator.opt_based_precipitator
-   prommis.cmi_precipitator.aqueous_properties
-   prommis.cmi_precipitator.precipitate_properties
+   prommis.cmu_precipitator.opt_based_precipitator
+   prommis.cmu_precipitator.aqueous_properties
+   prommis.cmu_precipitator.precipitate_properties
+
+Ion Exchange 
+------------
+
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/module-with-contents.rst
+
+   prommis.ion_exchange.ion_exchange_multicomponent
+   prommis.ion_exchange.ion_exchange_multicomponent_base
+   prommis.ion_exchange.ix_freundlich_multicomponent_example
